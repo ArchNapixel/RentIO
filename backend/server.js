@@ -1,4 +1,5 @@
 import express from 'express';
+import { GoogleGenAI } from '@google/genai';
 import * as store from './store.js';
 import * as r from './reports.js';
 
@@ -24,7 +25,7 @@ const reports = {
 const required = {
   properties: ['name', 'type'],
   units: ['propertyId', 'name'],
-  tenants: ['name'],
+  tenants: ['name', 'propertyId'],
   leases: ['tenantId', 'unitId', 'startDate', 'endDate', 'rent'],
   payments: ['leaseId', 'date', 'amount', 'type'],
   invoices: ['leaseId', 'dueDate', 'amount'],
@@ -34,7 +35,7 @@ const required = {
 const numeric = new Set(['rent', 'amount', 'deposit', 'escalationPct', 'escalationEveryMonths', 'noticeDays', 'dueDay', 'bedrooms', 'marketRent', 'capacity']);
 // Who points at whom: blocks deletes that would orphan records.
 const referencedBy = {
-  properties: [['units', 'propertyId'], ['expenses', 'propertyId']],
+  properties: [['units', 'propertyId'], ['tenants', 'propertyId'], ['expenses', 'propertyId']],
   units: [['leases', 'unitId']],
   tenants: [['leases', 'tenantId']],
   leases: [['payments', 'leaseId'], ['invoices', 'leaseId'], ['violations', 'leaseId']],
@@ -87,6 +88,49 @@ app.post('/api/invoices/generate', (req, res) => {
   const month = req.body?.month ?? r.today().slice(0, 7);
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw bad('Month must look like 2026-09');
   res.status(201).json(generateFor(month));
+});
+
+// AI assistant: answers questions from a live summary of the data.
+// ponytail: whole summary goes in every prompt; switch to Gemini function calling if portfolios grow to thousands of units.
+const ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }) : null;
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-flash-latest';
+
+app.post('/api/ai/chat', async (req, res) => {
+  if (!ai) throw bad('Nena, the assistant, is not set up. Add GEMINI_API_KEY to backend/.env and restart the server.', 503);
+  const messages = req.body?.messages;
+  if (!Array.isArray(messages) || !messages.length || messages.at(-1)?.role !== 'user') throw bad('Send at least one user message');
+  const db = snapshot();
+  const context = {
+    today: r.today(),
+    dashboard: r.dashboard(db),
+    properties: db.properties,
+    rentRoll: r.rentRoll(db),
+    alerts: r.alerts(db),
+    leaseExpiry: r.leaseExpiry(db),
+    balances: r.balances(db),
+    deposits: r.depositLedger(db),
+    finance: r.finance(db),
+  };
+  try {
+    const result = await ai.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: messages.slice(-20).map((m) => ({ role: m.role === 'user' ? 'user' : 'model', parts: [{ text: String(m.text ?? '').slice(0, 4000) }] })),
+      config: {
+        systemInstruction: [
+          'You are Nena, the RentIO assistant, helping a property manager in the Philippines. Introduce yourself as Nena when greeting or when asked who you are. Be warm, friendly and concise.',
+          'Answer only from the data below. If the data does not contain the answer, say so plainly. Never invent tenants, units or amounts.',
+          'Amounts are Philippine pesos; format them like ₱12,500.00. Keep answers short and in plain text (no Markdown; use simple dashes for lists). Reply in the language the user writes in (English, Filipino or Taglish).',
+          `DATA (JSON): ${JSON.stringify(context)}`,
+        ].join('\n'),
+      },
+    });
+    // The chat shows plain text, so strip the Markdown Gemini still sometimes adds.
+    const reply = (result.text ?? '').replace(/\*\*(.+?)\*\*/g, '$1').replace(/^(\s*)\* /gm, '$1- ').trim();
+    res.json({ reply: reply || "I couldn't come up with an answer. Try rephrasing." });
+  } catch (err) {
+    console.error('Gemini error:', err.message);
+    throw bad('Nena is unavailable right now. Try again in a minute.', 502);
+  }
 });
 
 // Generic CRUD for every collection

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { api, money } from '../api.js';
+import { api, money, useLookups } from '../api.js';
 import Crud from '../components/Crud.jsx';
 import Doc from '../components/Doc.jsx';
 import Table, { col, mcol } from '../components/Table.jsx';
@@ -7,6 +7,7 @@ import Table, { col, mcol } from '../components/Table.jsx';
 export default function Tenants() {
   const [archived, setArchived] = useState(false);
   const [profile, setProfile] = useState(null);
+  const [lookups] = useLookups();
   const t = profile?.tenant;
 
   return (
@@ -16,12 +17,15 @@ export default function Tenants() {
       </label>
       <Crud
         name="tenants"
+        addable={false}
+        empty={archived ? 'No archived tenants.' : 'No tenants yet. Add one from the quick actions button at the bottom right of the Dashboard.'}
         filter={(x) => !!x.archived === archived}
         actions={(x) => <button className="btn sm" onClick={async () => setProfile(await api(`/tenants/${x.id}/summary`))}>Profile</button>}
       />
       {profile && (
         <Doc title={t.name} onClose={() => setProfile(null)}>
           <dl className="facts">
+            <dt>Renting at</dt><dd>{lookups.properties?.[t.propertyId] ?? '—'}</dd>
             <dt>Email</dt><dd>{t.email || '—'}</dd>
             <dt>Phone</dt><dd>{t.phone || '—'}</dd>
             <dt>Emergency contact</dt><dd>{t.emergencyName ? `${t.emergencyName} · ${t.emergencyPhone ?? ''}` : '—'}</dd>

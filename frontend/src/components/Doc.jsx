@@ -2,7 +2,7 @@
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 
-export default function Doc({ title, onClose, children }) {
+export default function Doc({ title, onClose, children, printable = true }) {
   useEffect(() => {
     const onKey = (e) => e.key === 'Escape' && onClose();
     addEventListener('keydown', onKey);
@@ -13,8 +13,8 @@ export default function Doc({ title, onClose, children }) {
     <div className="doc-overlay" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.target === e.currentTarget && onClose()}>
       <article className="doc">
         <div className="doc-actions">
-          <button className="btn" onClick={() => window.print()}>Print / Save PDF</button>
-          <button className="btn" onClick={onClose} autoFocus>Close</button>
+          {printable && <button className="btn" onClick={() => window.print()}>Print / Save PDF</button>}
+          <button className="btn" onClick={onClose} autoFocus={printable}>Close</button>
         </div>
         <h2>{title}</h2>
         {children}

@@ -28,6 +28,7 @@ export const resources = {
     title: 'Tenants', singular: 'tenant',
     fields: [
       { key: 'name', label: 'Full name', required: true },
+      { key: 'propertyId', label: 'Renting at', ref: 'properties', required: true, hint: 'Not listed? Add the property first.' },
       { key: 'email', label: 'Email', type: 'email' },
       { key: 'phone', label: 'Phone', type: 'tel' },
       { key: 'emergencyName', label: 'Emergency contact' },

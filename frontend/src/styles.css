@@ -137,3 +137,137 @@ input[type='checkbox'] { min-height: auto; width: 18px; height: 18px; }
   .layout { display: block; }
   body { background: #fff; }
 }
+
+/* Quick actions (dashboard floating button) */
+:root { --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1); --fab: 168px; }
+main { padding-bottom: calc(var(--fab) + 40px); }
+.fab-wrap {
+  position: fixed; right: 24px; bottom: 24px; z-index: 9;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 12px;
+}
+.fab {
+  width: var(--fab); height: var(--fab); border-radius: 50%; border: 0; cursor: pointer;
+  background: var(--accent); color: var(--accent-text); display: grid; place-items: center;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.2);
+  transition: transform 150ms var(--ease-out), box-shadow 150ms var(--ease-out);
+}
+.fab:hover { box-shadow: 0 6px 16px rgb(0 0 0 / 0.25); }
+.fab:active { transform: scale(0.94); }
+.fab { position: relative; --bot-eye: var(--accent); }
+.fab-bot, .fab-x { position: absolute; inset: 0; display: grid; place-items: center; transition: opacity 150ms linear, transform 200ms var(--ease-out); }
+.fab-bot svg { width: 64%; height: 64%; color: #fff; }
+.fab-x::before, .fab-x::after { content: ''; position: absolute; width: 36%; height: 4px; border-radius: 4px; background: currentColor; }
+.fab-x::before { transform: rotate(45deg); }
+.fab-x::after { transform: rotate(-45deg); }
+.fab-x { opacity: 0; transform: rotate(-90deg); }
+.fab.open .fab-bot { opacity: 0; transform: rotate(90deg) scale(0.6); }
+.fab.open .fab-x { opacity: 1; transform: none; }
+.bot-eyes { transform-origin: 16px 16px; animation: blink 4s infinite; }
+/* The bot hops every few seconds (squash, jump, land), and quickly on hover. */
+.fab-bot svg { transform-origin: 50% 100%; animation: hop 3.2s var(--ease-out) infinite; }
+.fab:hover .fab-bot svg { animation: hop-quick 600ms var(--ease-out); }
+.fab.open .fab-bot svg { animation: none; }
+@keyframes hop {
+  0%, 68%, 100% { transform: translateY(0) scale(1, 1); }
+  73% { transform: translateY(0) scale(1.08, 0.9); }
+  81% { transform: translateY(-9%) scale(0.96, 1.04); }
+  88% { transform: translateY(0) scale(1.06, 0.93); }
+  93% { transform: translateY(-3%) scale(1, 1); }
+}
+@keyframes hop-quick {
+  0%, 100% { transform: translateY(0) scale(1, 1); }
+  15% { transform: translateY(0) scale(1.08, 0.9); }
+  45% { transform: translateY(-10%) scale(0.96, 1.04); }
+  75% { transform: translateY(0) scale(1.06, 0.93); }
+}
+@keyframes blink { 0%, 94%, 100% { transform: scaleY(1); } 97% { transform: scaleY(0.1); } }
+
+/* Speech bubble next to the bot */
+.speech {
+  position: absolute; right: calc(var(--fab) + 12px); bottom: calc(var(--fab) / 2 - 24px); width: max-content; max-width: min(300px, calc(100vw - var(--fab) - 44px));
+  display: flex; align-items: flex-start; gap: 4px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px 12px 4px 12px;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.15); animation: pop-in 250ms var(--ease-out) 400ms both;
+}
+.speech::after {
+  content: ''; position: absolute; right: -6px; bottom: 12px; width: 10px; height: 10px; transform: rotate(45deg);
+  background: var(--surface); border-right: 1px solid var(--border); border-top: 1px solid var(--border);
+}
+.speech-text { font: inherit; font-size: 16px; line-height: 1.45; color: var(--text); background: none; border: 0; text-align: left; padding: 10px 0 10px 12px; cursor: pointer; }
+.speech-close { font-size: 18px; line-height: 1; color: var(--muted); background: none; border: 0; cursor: pointer; padding: 8px 10px; min-width: 32px; min-height: 32px; }
+.speech-close:hover, .speech-text:hover { color: var(--text); }
+
+/* Chat panel */
+.chat-panel {
+  position: fixed; right: 24px; bottom: calc(var(--fab) + 40px); z-index: 9; width: min(380px, calc(100vw - 32px)); height: min(540px, calc(100vh - var(--fab) - 84px));
+  display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.2); overflow: hidden; transform-origin: bottom right;
+  opacity: 0; transform: translateY(12px) scale(0.95); visibility: hidden;
+  transition: opacity 150ms linear, transform 200ms var(--ease-out), visibility 0s linear 200ms;
+}
+.chat-panel.open { opacity: 1; transform: none; visibility: visible; transition-delay: 0s; }
+.chat-head { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.chat-title { flex: 1; display: flex; flex-direction: column; line-height: 1.2; }
+.chat-title small { font-size: 12px; }
+.bot-avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--accent); color: #fff; padding: 5px; --bot-eye: var(--accent); }
+.chat { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; }
+.chat-log { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.chat-suggestions { display: flex; flex-wrap: wrap; gap: 8px; }
+.chat-suggestions .btn { white-space: normal; text-align: left; }
+.bubble { margin: 0; padding: 8px 12px; border-radius: 12px; max-width: 85%; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+.bubble.user { align-self: flex-end; background: var(--accent); color: var(--accent-text); border-bottom-right-radius: 4px; }
+.bubble.model { align-self: flex-start; background: var(--bg); border-bottom-left-radius: 4px; }
+.typing { display: flex; gap: 4px; padding: 12px; }
+.typing span { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: typing 1s infinite; }
+.typing span:nth-child(2) { animation-delay: 150ms; }
+.typing span:nth-child(3) { animation-delay: 300ms; }
+@keyframes typing { 0%, 60%, 100% { opacity: 0.3; } 30% { opacity: 1; } }
+.chat-input { display: flex; gap: 8px; align-items: flex-end; }
+.chat-input textarea { flex: 1; resize: none; max-height: 120px; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.small { font-size: 12px; margin: 0; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.fab-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.fab-action {
+  font: inherit; font-size: 14px; color: var(--text); cursor: pointer;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
+  padding: 8px 16px; min-height: 44px; box-shadow: 0 2px 8px rgb(0 0 0 / 0.12);
+  opacity: 0; transform: translateY(12px) scale(0.96);
+  transition: opacity 150ms linear, transform 200ms var(--ease-out);
+}
+.fab-action:hover { border-color: var(--muted); }
+.fab-actions:not(.open) { pointer-events: none; }
+.fab-actions.open .fab-action { opacity: 1; transform: none; }
+/* stagger outward from the button on open */
+.fab-actions.open .fab-action:nth-last-child(2) { transition-delay: 40ms; }
+.fab-actions.open .fab-action:nth-last-child(3) { transition-delay: 80ms; }
+
+.toast {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 11; margin: 0;
+  background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 8px;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.2); animation: toast-in 200ms var(--ease-out);
+  max-width: calc(100vw - 32px);
+}
+.form-error { grid-column: 1 / -1; margin: 0; }
+
+/* Modal enter */
+.doc-overlay { animation: fade-in 150ms linear; }
+.doc { animation: pop-in 200ms var(--ease-out); }
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes pop-in { from { opacity: 0; transform: translateY(8px) scale(0.98); } }
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } }
+
+@media (max-width: 768px) {
+  .fab-wrap { right: 16px; bottom: 16px; }
+  .chat-panel { right: 16px; bottom: calc(var(--fab) + 28px); height: calc(100vh - var(--fab) - 64px); }
+  .toast { bottom: calc(var(--fab) + 32px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fab, .fab-bot, .fab-x, .fab-action, .chat-panel { transition-property: opacity, visibility; transition-delay: 0ms !important; }
+  .fab-action, .chat-panel, .fab-bot, .fab-x { transform: none !important; }
+  .doc, .toast, .speech { animation-name: fade-in; }
+  .bot-eyes, .typing span, .fab-bot svg, .fab:hover .fab-bot svg { animation: none; }
+}
+@media print { .fab-wrap, .toast, .chat-panel { display: none !important; } }
+

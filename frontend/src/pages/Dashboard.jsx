@@ -1,8 +1,28 @@
 import { money, pct, useApi } from '../api.js';
+import QuickActions from '../components/QuickActions.jsx';
 import Table, { Stat, col } from '../components/Table.jsx';
 
 export default function Dashboard() {
-  const [d] = useApi('/reports/dashboard');
+  const [d, reload] = useApi('/reports/dashboard');
+  return (
+    <>
+      <DashboardBody d={d} />
+      <QuickActions hint={assistantHint(d)} onSaved={reload} />
+    </>
+  );
+}
+
+// What the assistant says in its speech bubble: the most urgent thing first.
+function assistantHint(d) {
+  if (!d || Array.isArray(d)) return "Hi! I'm Nena, your RentIO assistant. Tap here to chat.";
+  if (d.properties === 0) return "Hi! I'm Nena, your RentIO assistant. Add your first property, or tap here to ask me anything.";
+  if (d.overdue > 0) return `Heads up: ${money(d.overdue)} in rent is overdue. Tap to ask me who owes it.`;
+  if (d.expiring.length) return `${d.expiring.length} lease${d.expiring.length > 1 ? 's expire' : ' expires'} in the next 90 days. Want the details?`;
+  if (d.vacant > 0) return `You have ${d.vacant} vacant unit${d.vacant > 1 ? 's' : ''}. Tap to chat about it.`;
+  return 'All good: no overdue rent or upcoming expiries. Ask me anything.';
+}
+
+function DashboardBody({ d }) {
   if (!d) return <p className="muted">Loading…</p>;
   if (Array.isArray(d)) return <p className="error">Couldn't load the dashboard. Check that the backend is running on port 4000.</p>;
 
