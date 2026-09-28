@@ -20,6 +20,7 @@ export function clean(collection, body) {
     if (Number.isNaN(row[k])) throw bad(`${k} must be a number`);
   }
   for (const k of required[collection]) if (row[k] == null) throw bad(`${k} is required`);
+  if (row.email != null && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email)) throw bad('Enter an email like juan@gmail.com, or leave it blank');
   if (collection === 'properties') {
     if (!PROPERTY_TYPES.includes(row.type)) throw bad(`Type must be one of: ${PROPERTY_TYPES.join(', ')}`);
     if (SHARED_TYPES.includes(row.type) && !(Number.isInteger(row.capacity) && row.capacity > 0)) {

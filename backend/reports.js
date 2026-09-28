@@ -65,6 +65,7 @@ export function dashboard(db, on = today()) {
     collectedThisMonth: sum(db.rentPayments.filter((p) => p.year === year && p.month === month), (p) => p.amount),
     expectedThisMonth: sum(tenants, (t) => t.monthlyRent),
     overdue: sum(tenants, (t) => t.balance),
+    collectedLast12Months: finance(db, on).totals.income,
     overdueTenants: tenants.filter((t) => t.overdueCount > 0),
     perProperty: db.properties.map((p) => {
       const here = tenants.filter((t) => t.propertyId === p.id);
@@ -87,6 +88,23 @@ export function quickHint(d, on = today()) {
   const unpaid = d.tenants - d.paidThisMonth;
   if (unpaid) return `${unpaid} tenant${unpaid > 1 ? "s haven't" : " hasn't"} paid for ${month} yet.`;
   return `Everyone has paid for ${month}. Ask me anything.`;
+}
+
+// Daily email to the owner: only overdue rent, so a quiet day sends nothing.
+export function overdueDigest(db, on = today()) {
+  const late = tenantRows(db, on).filter((t) => t.overdueCount);
+  if (!late.length) return null;
+  const total = sum(late, (t) => t.balance);
+  return {
+    subject: `${late.length} tenant${late.length > 1 ? 's' : ''} behind on rent (${peso(total)})`,
+    text: [
+      'Overdue rent as of today:',
+      '',
+      ...late.map((t) => `- ${t.name} (${t.property}): ${t.overdueMonths}${t.balance ? `, ${peso(t.balance)}` : ''}`),
+      '',
+      'Open RentIO and tick the months in the rent tracker once they pay.',
+    ].join('\n'),
+  };
 }
 
 export function alerts(db, on = today()) {

@@ -5,7 +5,6 @@ import Dashboard from './pages/Dashboard.jsx';
 import Properties from './pages/Properties.jsx';
 import Tenants from './pages/Tenants.jsx';
 import Rent from './pages/Rent.jsx';
-import Finance from './pages/Finance.jsx';
 import Alerts, { useAlertNotifier } from './pages/Alerts.jsx';
 import QuickActions from './components/QuickActions.jsx';
 import { I, Icon } from './components/Icons.jsx';
@@ -20,7 +19,6 @@ const pages = {
   payments: ['Rent tracker', Rent, 'Rent', I.rent],
   tenants: ['Tenants', Tenants, 'Tenants', I.tenants],
   properties: ['Properties', Properties, 'Properties', I.properties],
-  finance: ['Finance', Finance, 'Finance', I.finance],
   alerts: ['Alerts', Alerts, 'Alerts', I.alerts],
 };
 // "#tenants?id=…" → route "tenants"; pages read the ?params themselves.

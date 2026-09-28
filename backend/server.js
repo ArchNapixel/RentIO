@@ -3,6 +3,7 @@ import * as store from './store.js';
 import * as r from './reports.js';
 import * as nena from './nena.js';
 import { demoData } from './demo.js';
+import { scheduleDigests } from './digest.js';
 import { bad, clean } from './validate.js';
 
 const PORT = process.env.PORT || 4000;
@@ -24,7 +25,6 @@ app.use('/api', async (req, res, next) => {
 const reports = {
   dashboard: r.dashboard,
   alerts: r.alerts,
-  finance: r.finance,
   'tenant-balances': r.tenantRows,
 };
 // Who points at whom: friendlier message than the database's foreign-key error.
@@ -121,3 +121,4 @@ app.use((err, req, res, next) => {
 });
 
 app.listen(PORT, () => console.log(`RentIO API on http://localhost:${PORT}`));
+scheduleDigests();

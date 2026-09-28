@@ -12,7 +12,7 @@ const MODEL = process.env.GEMINI_MODEL || 'gemini-flash-latest';
 const MAX_STEPS = 6; // tool rounds per message
 const MAX_PROPOSALS = 3; // changes Nena may propose per message
 const MAX_MONTHS = 24; // months per mark_rent_paid
-const SCREENS = ['dashboard', 'payments', 'tenants', 'properties', 'finance', 'alerts'];
+const SCREENS = ['dashboard', 'payments', 'tenants', 'properties', 'alerts'];
 
 function requireAi() {
   if (!ai) throw bad('Nena is not set up. Add GEMINI_API_KEY to backend/.env and restart the server.', 503);
@@ -222,7 +222,7 @@ export const actionTools = {
 
 const openScreen = {
   description: "Open a screen in the app for the owner. Give tenantId to open that tenant's details, or propertyId for a property (or its rent tracker when screen is payments).",
-  parameters: obj({ screen: oneOf(SCREENS, 'dashboard, payments (the rent tracker), tenants, properties, finance or alerts'), tenantId: str('Tenant id'), propertyId: str('Property id') }, ['screen']),
+  parameters: obj({ screen: oneOf(SCREENS, 'dashboard, payments (the rent tracker), tenants, properties or alerts'), tenantId: str('Tenant id'), propertyId: str('Property id') }, ['screen']),
 };
 
 const functionDeclarations = [

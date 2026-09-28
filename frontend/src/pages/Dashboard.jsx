@@ -22,8 +22,9 @@ export default function Dashboard({ guest }) {
     <>
       {guest && <p className="box info demo-note"><Icon d={I.alert} />You're looking at sample data. Sign up to add your own properties and tenants.</p>}
       <div className="stats">
-        <Stat wide label="Collected this month" value={money(d.collectedThisMonth)} of={money(d.expectedThisMonth)} progress={d.expectedThisMonth ? d.collectedThisMonth / d.expectedThisMonth : 0} />
+        <Stat wide label="Collected this month" value={money(d.collectedThisMonth)} of={money(d.expectedThisMonth)} progress={d.expectedThisMonth ? d.collectedThisMonth / d.expectedThisMonth : 0} note={`${money(d.collectedLast12Months)} in the last 12 months`} />
         <Stat label={`Paid for ${MONTH}`} value={d.paidThisMonth} of={d.tenants} />
+        <Stat label="Overdue" value={<span className={d.overdue ? 'owed' : ''}>{money(d.overdue)}</span>} note={d.overdueTenants.length ? `${d.overdueTenants.length} tenant${d.overdueTenants.length > 1 ? 's' : ''} behind` : 'Everyone is up to date'} />
         {d.capacity > 0 && <Stat label="Beds occupied" value={d.occupiedBeds} of={d.capacity} />}
       </div>
       <h2 className="section-label">Properties</h2>

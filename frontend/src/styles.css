@@ -212,7 +212,7 @@ input[type='checkbox'].switch:checked::after { transform: translateX(18px); }
 /* ---------- Cards, stats, lists ---------- */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--e1); }
 .card.pad { padding: var(--sp-4); }
-.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-3); }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--sp-3); }
 .stat { padding: var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-1); }
 .stat .label { font-size: 13px; line-height: 18px; color: var(--text-muted); }
 .stat .value { font-size: 26px; line-height: 32px; font-weight: 650; font-variant-numeric: tabular-nums; }
@@ -268,27 +268,23 @@ td.num, th.num { text-align: right; }
 .year-nav { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin-bottom: var(--sp-4); }
 .year-nav strong { font-size: 20px; font-weight: 650; min-width: 64px; text-align: center; font-variant-numeric: tabular-nums; }
 .year-nav .btn { width: 44px; padding: 0; }
-.legend { display: inline-flex; align-items: center; gap: var(--sp-2); margin-left: auto; font-size: 13px; color: var(--text-muted); }
-.swatch { width: 16px; height: 16px; border-radius: 4px; background: var(--owed-soft); border: 1.5px solid var(--owed); }
 .grid-card { margin-bottom: var(--sp-3); overflow: hidden; }
 .grid-card header { padding: var(--sp-4); border-bottom: 1px solid var(--border); }
 .grid-card header p { margin: 0; font-size: 13px; color: var(--text-muted); }
-.rent-grid th, .rent-grid td { padding: 0; height: 52px; text-align: center; border-bottom: 1px solid var(--border); }
-.rent-grid thead th { height: 40px; font-size: 13px; font-weight: 500; }
-.rent-grid .month { width: 52px; min-width: 52px; }
-.rent-grid thead th.now { color: var(--accent); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
-.rent-grid th.who {
-  position: sticky; left: 0; z-index: 1; background: var(--surface); text-align: left; padding: var(--sp-2) var(--sp-4);
-  min-width: 150px; border-right: 1px solid var(--border); font-weight: 500;
+.rent-row { flex-direction: column; align-items: stretch !important; gap: var(--sp-3) !important; }
+.rent-who { display: flex; align-items: flex-start; gap: var(--sp-3); }
+.rent-who .end { font-weight: 600; }
+.months { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 4px; max-width: 480px; }
+.month-dot {
+  font: inherit; font-size: 12px; font-weight: 600; aspect-ratio: 1; min-width: 0; max-width: 36px; width: 100%; padding: 0; cursor: pointer;
+  border-radius: var(--r-full); border: 1.5px solid var(--border-strong); background: var(--surface); color: var(--text-muted);
+  display: grid; place-items: center; transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 }
-.rent-grid th.who small { display: block; font-size: 13px; line-height: 18px; color: var(--text-muted); font-weight: 400; }
-.rent-grid th.who .behind { color: var(--owed); font-weight: 600; }
-.rent-grid td.overdue { background: var(--owed-soft); }
-.rent-grid td.overdue input:not(:checked) { border-color: var(--owed); border-width: 2px; }
-.rent-grid td.before { color: var(--text-muted); }
-.rent-grid td.count { font-weight: 650; border-left: 1px solid var(--border); padding: 0 var(--sp-4); }
-.rent-grid td.saving input { opacity: 0.5; }
-.grid-hint { display: none; margin: 0; padding: var(--sp-2) var(--sp-4); font-size: 13px; color: var(--text-muted); text-align: right; border-top: 1px solid var(--border); }
+.month-dot.on { background: var(--paid); border-color: var(--paid); color: #fff; }
+.month-dot.overdue { background: var(--owed-soft); border-color: var(--owed); color: var(--owed); }
+.month-dot.before { border-style: dashed; opacity: 0.4; cursor: default; }
+.month-dot.now { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent); }
+.month-dot:disabled:not(.before) { opacity: 0.5; cursor: wait; }
 
 /* ---------- Alerts ---------- */
 .alerts > li { align-items: flex-start; }
@@ -411,7 +407,7 @@ td.num, th.num { text-align: right; }
 .speech::after { content: ''; position: absolute; right: -7px; bottom: 20px; width: 12px; height: 12px; transform: rotate(45deg); background: var(--surface); border-right: 1px solid var(--border); border-top: 1px solid var(--border); }
 .speech-text {
   font: inherit; font-size: 14px; line-height: 20px; color: var(--text); background: none; border: 0; text-align: left; padding: var(--sp-3) 0 var(--sp-3) 14px; cursor: pointer;
-  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  flex: 1; min-width: 0; max-height: 40dvh; overflow-y: auto; overflow-wrap: anywhere;
 }
 .speech-close { font-size: 16px; line-height: 1; color: var(--text-muted); background: none; border: 0; cursor: pointer; width: 44px; height: 44px; flex: none; margin: -4px -4px 0 0; }
 .speech-close:hover { color: var(--text); }
@@ -486,7 +482,7 @@ td.num, th.num { text-align: right; }
     border-right: 0; border-top: 1px solid var(--border);
   }
   .nav-icon .badge { display: block; }
-  .brand, .nav-label, .nav-count { display: none; }
+  .nav .brand, .nav-label, .nav-count { display: none; }
   .nav-short { display: block; font-size: 11px; line-height: 14px; font-weight: 500; }
   .nav a { flex: 1; min-width: 0; min-height: var(--tabbar); padding: var(--sp-2) 0 6px; border-radius: 0; flex-direction: column; justify-content: center; gap: var(--sp-1); }
   .nav a:hover, .nav a[aria-current] { background: none; }
@@ -494,13 +490,10 @@ td.num, th.num { text-align: right; }
   .nav-icon, .nav-icon svg { width: 24px; height: 24px; }
 
   .stats { grid-template-columns: 1fr 1fr; }
-  .stats .stat.wide { grid-column: 1 / -1; }
+  .stats .stat.wide, .stats .stat:last-child:nth-child(even) { grid-column: 1 / -1; }
   .stat .value { font-size: 24px; line-height: 30px; }
   main > .btn.primary { width: 100%; }
 
-  .rent-grid th.who { min-width: 132px; padding: var(--sp-2) var(--sp-3); }
-  .grid-hint { display: block; }
-  .legend { margin-left: 0; width: 100%; }
 
   .scrim { place-items: end stretch; padding: 0; }
   .scrim.center { place-items: center; padding: var(--sp-4); }

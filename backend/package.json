@@ -5,7 +5,8 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env server.js",
     "dev": "node --env-file-if-exists=.env --watch server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "digest": "node --env-file-if-exists=.env digest.js"
   },
   "dependencies": {
     "@google/genai": "^2.24.0",

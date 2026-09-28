@@ -60,6 +60,17 @@ export async function snapshot(owner) {
   return { properties, tenants, rentPayments };
 }
 
+// Every account's id and email, for the daily digest.
+export async function owners() {
+  const out = [];
+  for (let page = 1; ; page++) {
+    const { data, error } = await sb.auth.admin.listUsers({ page, perPage: 1000 });
+    if (error) throw error;
+    out.push(...data.users.filter((u) => u.email).map((u) => ({ id: u.id, email: u.email })));
+    if (data.users.length < 1000) return out;
+  }
+}
+
 // Nena's activity log: every change she made after the owner confirmed it.
 export const logAction = (owner, tool, args, summary) => run(sb.from('nena_actions').insert({ owner_id: owner, tool, args, summary }));
 export const recentActions = async (owner, limit) =>

@@ -4,7 +4,6 @@ export const I = {
   rent: 'M4 5h16v15H4zM4 9h16M8 3v4M16 3v4M8.5 14.5l2 2 4.5-4.5',
   tenants: 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21v-1a6 6 0 0 1 12 0v1M16 3.5a4 4 0 0 1 0 7.5M22 21v-1a6 6 0 0 0-4-5.6',
   properties: 'M4 21V4h9v17M13 9h7v12M3 21h18M7 8h2M7 12h2M7 16h2M16 13h1M16 17h1',
-  finance: 'M4 20V10M9 20V4M14 20v-7M19 20v-4M2 20h20',
   alerts: 'M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.9 1.9 0 0 0 3.4 0',
   plus: 'M12 5v14M5 12h14',
   x: 'M6 6l12 12M18 6 6 18',

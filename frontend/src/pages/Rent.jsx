@@ -13,17 +13,11 @@ export default function Rent() {
   const [year, setYear] = useState(thisYear);
   const [grid, reload, error] = useApi(`/rent?year=${year}`);
   const [ticks, setTicks] = useState({}); // "tenantId:month" -> value shown while saving (optimistic)
-  const root = useRef(null);
   const linked = useRef(hashParam('property')); // "#payments?property=…" (from Nena) scrolls to it
 
   useEffect(() => {
     if (!grid) return;
     clearHashParams();
-    // Open scrolled to the current month so it's visible on phones.
-    root.current?.querySelectorAll('.table-wrap').forEach((wrap) => {
-      const now = wrap.querySelector('th.now'), who = wrap.querySelector('th.who');
-      if (now && who) wrap.scrollLeft = now.offsetLeft - who.offsetWidth - 4 * now.offsetWidth;
-    });
     const el = linked.current && document.getElementById(`property-${linked.current}`);
     if (el) { linked.current = null; el.scrollIntoView({ block: 'start' }); }
   }, [grid]);
@@ -46,13 +40,12 @@ export default function Rent() {
   if (error && !grid) return <LoadError what="the rent tracker" onRetry={reload} />;
 
   return (
-    <div ref={root}>
+    <div>
       <div className="year-nav">
         <button className="btn" aria-label="Previous year" onClick={() => setYear(year - 1)}><Icon d={I.left} /></button>
         <strong aria-live="polite">{year}</strong>
         <button className="btn" aria-label="Next year" onClick={() => setYear(year + 1)}><Icon d={I.right} /></button>
         <button className="chip soft" onClick={() => setYear(thisYear)} disabled={year === thisYear}>This year</button>
-        <span className="legend"><span className="swatch" />past month not yet paid</span>
       </div>
       {!grid && <Loading rows={2} />}
       {grid?.properties.length === 0 && (
@@ -69,54 +62,43 @@ export default function Rent() {
           {!p.tenants.length ? (
             <p className="state muted">No tenants here yet.</p>
           ) : (
-            <>
-              <div className="table-wrap">
-                <table className="rent-grid">
-                  <thead>
-                    <tr>
-                      <th scope="col" className="who">Tenant</th>
-                      {MONTHS.map((m, i) => <th key={m} scope="col" className={`month ${year * 12 + i === nowIndex ? 'now' : ''}`}>{m}</th>)}
-                      <th scope="col" className="count">Paid</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {p.tenants.map((t) => {
-                      const paid = new Set(t.paid);
-                      return (
-                        <tr key={t.id}>
-                          <th scope="row" className="who">
-                            {t.name}
-                            <small>
-                              {t.monthlyRent > 0 && `${money(t.monthlyRent)}/mo`}
-                              {t.monthsBehind > 0 && <span className="behind block">{t.monthsBehind} month{t.monthsBehind > 1 ? 's' : ''} behind</span>}
-                            </small>
-                          </th>
-                          {MONTHS.map((m, i) => {
-                            const index = year * 12 + i, key = `${t.id}:${i + 1}`;
-                            if (index < t.startMonth) return <td key={m} className="before" title="Before move-in">–</td>;
-                            const checked = ticks[key] ?? paid.has(i + 1);
-                            const overdue = !checked && index < nowIndex;
-                            return (
-                              <td key={m} className={`${overdue ? 'overdue' : ''} ${key in ticks ? 'saving' : ''}`}>
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  disabled={key in ticks}
-                                  onChange={(e) => toggle(t, i + 1, e.target.checked)}
-                                  aria-label={`${t.name}, ${m} ${year} paid`}
-                                />
-                              </td>
-                            );
-                          })}
-                          <td className="count">{t.paid.length}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              <p className="grid-hint">Swipe for more months and the Paid count →</p>
-            </>
+            <ul className="list">
+              {p.tenants.map((t) => {
+                const paid = new Set(t.paid);
+                const nowPaid = year === thisYear && (ticks[`${t.id}:${nowIndex % 12 + 1}`] ?? paid.has(nowIndex % 12 + 1));
+                const status = t.monthsBehind > 0
+                  ? <span className="owed">{t.monthsBehind} month{t.monthsBehind > 1 ? 's' : ''} behind</span>
+                  : year === thisYear && nowIndex >= t.startMonth
+                    ? <span className={nowPaid ? 'paid' : 'muted'}>{MONTHS[nowIndex % 12]} {nowPaid ? 'paid' : 'due'}</span>
+                    : null;
+                return (
+                  <li key={t.id} className="rent-row">
+                    <div className="rent-who">
+                      <span className="grow"><span className="title">{t.name}</span>{t.monthlyRent > 0 && <span className="sub">{money(t.monthlyRent)}/mo</span>}</span>
+                      <span className="small end">{status}</span>
+                    </div>
+                    <div className="months">
+                      {MONTHS.map((m, i) => {
+                        const index = year * 12 + i, key = `${t.id}:${i + 1}`;
+                        const checked = ticks[key] ?? paid.has(i + 1);
+                        const state = index < t.startMonth ? 'before' : checked ? 'on' : index < nowIndex ? 'overdue' : '';
+                        return (
+                          <button
+                            key={m}
+                            className={`month-dot ${state} ${index === nowIndex ? 'now' : ''}`}
+                            aria-pressed={checked}
+                            aria-label={`${t.name}, ${m} ${year} paid`}
+                            title={state === 'before' ? 'Before move-in' : `${m} ${year}`}
+                            disabled={state === 'before' || key in ticks}
+                            onClick={() => toggle(t, i + 1, !checked)}
+                          >{m[0]}</button>
+                        );
+                      })}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </section>
       ))}

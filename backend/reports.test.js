@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { overdueMonths, rentGrid, tenantRows, toCsv } from './reports.js';
+import { overdueDigest, overdueMonths, rentGrid, tenantRows, toCsv } from './reports.js';
 
 const tenant = { id: 't', name: 'Juan', propertyId: 'p', monthlyRent: 3000, moveInDate: '2026-06-15' };
 const db = {
@@ -27,6 +27,11 @@ test('tenant rows compute balance from overdue months', () => {
 test('rent grid lists paid months per tenant under their property', () => {
   const grid = rentGrid(db, 2026);
   assert.deepEqual(grid.properties[0].tenants[0].paid, [6, 8]);
+});
+
+test('overdue digest lists late tenants, and is empty when nobody is late', () => {
+  assert.match(overdueDigest(db, '2026-09-28').text, /Juan \(Casa Luna\): Jul 2026, ₱3,000/);
+  assert.equal(overdueDigest(db, '2026-07-10'), null);
 });
 
 test('csv escapes quotes and formula injection', () => {

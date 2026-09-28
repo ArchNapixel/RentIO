@@ -29,12 +29,12 @@ export function Stat({ label, value, of, note, progress, wide }) {
     <div className={`card stat ${wide ? 'wide' : ''}`}>
       <span className="label">{label}</span>
       <span className="value">{value}{of != null && <small>of {of}</small>}</span>
-      {note && <span className="note">{note}</span>}
       {progress != null && (
         <div className="progress" role="progressbar" aria-label={label} aria-valuenow={Math.round(progress * 100)} aria-valuemin={0} aria-valuemax={100}>
           <span style={{ width: `${Math.min(100, progress * 100)}%` }} />
         </div>
       )}
+      {note && <span className="note">{note}</span>}
     </div>
   );
 }
