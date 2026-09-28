@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, useApi } from '../api.js';
+import { I, Icon } from '../components/Icons.jsx';
+import { LoadError, Loading } from '../components/States.jsx';
 
 const SEEN_KEY = 'rentio-notified';
 const supported = 'Notification' in window;
@@ -27,37 +29,55 @@ export function useAlertNotifier(enabled = true) {
   return count;
 }
 
+const ALERT_ICON = { 'Overdue rent': I.alert, 'Not yet paid': I.clock, Vacancy: I.building };
+const SEVERITY = { high: 'High', medium: 'Medium', low: 'Low' };
+
 export default function Alerts() {
-  const [alerts] = useApi('/reports/alerts');
+  const [alerts, reload, error] = useApi('/reports/alerts');
   const [permission, setPermission] = useState(supported ? Notification.permission : 'unsupported');
 
   return (
     <>
-      <section className="card">
-        <header className="card-head">
-          <h2>Notifications</h2>
-          {permission === 'default' && <button className="btn primary" onClick={() => Notification.requestPermission().then(setPermission)}>Turn on notifications</button>}
-        </header>
-        <p className="muted">
-          {permission === 'granted' && 'On. RentIO checks every 5 minutes and notifies you of new alerts.'}
-          {permission === 'default' && 'Get notified about overdue and unpaid rent and open spots.'}
-          {permission === 'denied' && 'Blocked. Allow notifications for this site in your browser settings.'}
-          {permission === 'unsupported' && "This browser doesn't support notifications."}
-        </p>
+      <section className="card notif">
+        <div className="notif-row">
+          <span><strong>Notifications</strong>{permission === 'granted' && <span className="muted block small">On for this phone</span>}</span>
+          {permission === 'granted' && <span className="paid" style={{ fontWeight: 600 }}>✓ On</span>}
+        </div>
+        {permission === 'default' && (
+          <>
+            <p>Get a heads-up on this phone when someone falls behind.</p>
+            <button className="btn primary block" onClick={() => Notification.requestPermission().then(setPermission)}><Icon d={I.bell} />Turn on notifications</button>
+          </>
+        )}
+        {permission === 'denied' && <p><strong>Blocked.</strong> Allow notifications for RentIO in your phone's Settings › Apps, then come back.</p>}
+        {permission === 'unsupported' && <p><strong>Not supported.</strong> This browser can't show notifications. Alerts still appear here.</p>}
       </section>
-      <section className="card">
-        <h2>Active alerts</h2>
-        {!alerts && <p className="muted">Loading…</p>}
-        {alerts?.length === 0 && <p className="empty">All clear. Nobody is behind on rent.</p>}
-        <ul className="alerts">
-          {alerts?.map((a) => (
-            <li key={a.id} className={`alert ${a.severity}`}>
-              <strong>{a.type}</strong>
-              <span>{a.message}</span>
-            </li>
-          ))}
-        </ul>
-      </section>
+
+      {error && !alerts && <LoadError what="your alerts" onRetry={reload} />}
+      {!alerts && !error && <Loading rows={2} />}
+      {alerts?.length === 0 && (
+        <div className="state center">
+          <span className="icon paid"><Icon d={I.check} /></span>
+          <h2>All clear.</h2>
+          <p>Nobody is behind on rent.</p>
+        </div>
+      )}
+      {alerts?.length > 0 && (
+        <>
+          <p className="section-label">{alerts.length} alert{alerts.length > 1 ? 's' : ''}</p>
+          <ul className="card list alerts">
+            {alerts.map((a) => (
+              <li key={a.id}>
+                <span className={`alert-icon ${a.severity}`}><Icon d={ALERT_ICON[a.type] ?? I.alert} /></span>
+                <span className="grow">
+                  <span className="title">{a.type}<span className={`pill ${a.severity}`}>{SEVERITY[a.severity]}</span></span>
+                  <span>{a.message}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </>
   );
 }

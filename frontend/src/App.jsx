@@ -8,25 +8,20 @@ import Rent from './pages/Rent.jsx';
 import Finance from './pages/Finance.jsx';
 import Alerts, { useAlertNotifier } from './pages/Alerts.jsx';
 import QuickActions from './components/QuickActions.jsx';
+import { I, Icon } from './components/Icons.jsx';
+import { Wordmark } from './components/Robot.jsx';
+import { OfflineBanner, useOnline } from './components/States.jsx';
+import Toasts from './components/Toasts.jsx';
+import ThemeToggle from './components/ThemeToggle.jsx';
 
-// 24x24 stroke icons (path data only).
-const icons = {
-  dashboard: 'M3 3h7v9H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 16h7v5H3z',
-  payments: 'M4 5h16v15H4zM4 9h16M8 3v4M16 3v4M8.5 14.5l2 2 4.5-4.5',
-  tenants: 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21v-1a6 6 0 0 1 12 0v1M16 3.5a4 4 0 0 1 0 7.5M22 21v-1a6 6 0 0 0-4-5.6',
-  properties: 'M3 21h18M5 21V8l7-5 7 5v13M9 21v-6h6v6',
-  finance: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
-  alerts: 'M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.9 1.9 0 0 0 3.4 0',
-};
-
-// key: [page title, component, short tab label]
+// key: [page title, component, nav label, icon]
 const pages = {
-  dashboard: ['Dashboard', Dashboard, 'Home'],
-  payments: ['Rent tracker', Rent, 'Rent'],
-  tenants: ['Tenants', Tenants, 'Tenants'],
-  properties: ['Properties', Properties, 'Properties'],
-  finance: ['Finance', Finance, 'Finance'],
-  alerts: ['Alerts', Alerts, 'Alerts'],
+  dashboard: ['Home', Dashboard, 'Home', I.home],
+  payments: ['Rent tracker', Rent, 'Rent', I.rent],
+  tenants: ['Tenants', Tenants, 'Tenants', I.tenants],
+  properties: ['Properties', Properties, 'Properties', I.properties],
+  finance: ['Finance', Finance, 'Finance', I.finance],
+  alerts: ['Alerts', Alerts, 'Alerts', I.alerts],
 };
 // "#tenants?id=…" → route "tenants"; pages read the ?params themselves.
 const current = () => {
@@ -68,21 +63,24 @@ function Shell({ guest = false, onSignUp }) {
     return () => removeEventListener('hashchange', onHash);
   }, [guest]);
   const alertCount = useAlertNotifier(!guest);
+  const online = useOnline();
   const [title, Page] = pages[route];
+  const badge = alertCount > 9 ? '9+' : alertCount;
 
   return (
     <div className={`layout ${guest ? 'guest' : ''}`}>
       {!guest && (
         <nav className="nav" aria-label="Main">
-          <strong className="brand">RentIO</strong>
-          {Object.entries(pages).map(([key, [label, , short]]) => (
-            <a key={key} href={`#${key}`} aria-current={key === route ? 'page' : undefined}>
+          <a className="brand" href="#dashboard" aria-label="RentIO home"><Wordmark /></a>
+          {Object.entries(pages).map(([key, [, , label, icon]]) => (
+            <a key={key} href={`#${key}`} aria-current={key === route ? 'page' : undefined} aria-label={key === 'alerts' && alertCount ? `Alerts, ${alertCount} open` : undefined}>
               <span className="nav-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d={icons[key]} /></svg>
-                {key === 'alerts' && alertCount > 0 && <span className="badge">{alertCount > 99 ? '99+' : alertCount}</span>}
+                <Icon d={icon} />
+                {key === 'alerts' && alertCount > 0 && <span className="badge">{badge}</span>}
               </span>
               <span className="nav-label">{label}</span>
-              <span className="nav-short">{short}</span>
+              <span className="nav-short">{label}</span>
+              {key === 'alerts' && alertCount > 0 && <span className="badge nav-count" aria-hidden="true">{badge}</span>}
             </a>
           ))}
         </nav>
@@ -90,12 +88,17 @@ function Shell({ guest = false, onSignUp }) {
       <main>
         <header className="page-head">
           <h1>{title}</h1>
-          {guest
-            ? <button className="btn primary sm" onClick={onSignUp}>Sign up</button>
-            : <button className="btn sm" onClick={() => supabase.auth.signOut()}>Log out</button>}
+          <span className="row-actions">
+            <ThemeToggle />
+            {guest
+              ? <button className="btn primary sm" onClick={onSignUp}>Sign up</button>
+              : <button className="btn sm" onClick={() => supabase.auth.signOut()}>Log out</button>}
+          </span>
         </header>
+        {!online && <OfflineBanner />}
         <Page key={`${hash}:${version}`} guest={guest} />
       </main>
+      <Toasts />
       <QuickActions guest={guest} onSignUp={onSignUp} version={version} onChanged={() => setVersion((v) => v + 1)} />
     </div>
   );

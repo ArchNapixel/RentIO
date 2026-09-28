@@ -1,24 +1,59 @@
-// Printable overlay for receipts, invoices, profiles. "Print / Save PDF" uses the browser's print-to-PDF.
-import { useEffect } from 'react';
+// Bottom sheet on phones, centred dialog on desktop: title, ×, scrolling body.
+// Escape or tapping the scrim closes it; focus stays inside and returns to the opener afterwards.
+import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { I, Icon } from './Icons.jsx';
 
-export default function Doc({ title, onClose, children, printable = true }) {
+const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+export function useFocusTrap(ref, onClose) {
   useEffect(() => {
-    const onKey = (e) => e.key === 'Escape' && onClose();
-    addEventListener('keydown', onKey);
-    return () => removeEventListener('keydown', onKey);
-  }, [onClose]);
+    const opener = document.activeElement;
+    const box = ref.current;
+    (box.querySelector('[autofocus]') ?? box.querySelector(FOCUSABLE))?.focus();
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.stopPropagation(); onClose(); }
+      if (e.key !== 'Tab') return;
+      const items = [...box.querySelectorAll(FOCUSABLE)];
+      const first = items[0], last = items.at(-1);
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
+    box.addEventListener('keydown', onKey);
+    return () => { box.removeEventListener('keydown', onKey); opener?.focus?.(); };
+  }, []);
+}
 
+export default function Doc({ title, onClose, children, printable = false }) {
+  const ref = useRef(null);
+  useFocusTrap(ref, onClose);
   return createPortal(
-    <div className="doc-overlay" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <article className="doc">
-        <div className="doc-actions">
-          {printable && <button className="btn" onClick={() => window.print()}>Print / Save PDF</button>}
-          <button className="btn" onClick={onClose} autoFocus={printable}>Close</button>
-        </div>
+    <div className="scrim" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <section className="sheet" role="dialog" aria-modal="true" aria-label={title} ref={ref}>
+        <header className="sheet-head">
+          <h2>{title}</h2>
+          {printable && <button className="icon-btn" aria-label="Print or save as PDF" title="Print or save as PDF" onClick={() => window.print()}><Icon d={I.printer} /></button>}
+          <button className="icon-btn" aria-label="Close" onClick={onClose}><Icon d={I.x} /></button>
+        </header>
+        <div className="sheet-body">{children}</div>
+      </section>
+    </div>,
+    document.body,
+  );
+}
+
+// Named confirmation for destructive actions ("Delete Juan dela Cruz?").
+export function Confirm({ title, body, confirmLabel, cancelLabel = 'Cancel', onConfirm, onCancel, busy }) {
+  const ref = useRef(null);
+  useFocusTrap(ref, onCancel);
+  return createPortal(
+    <div className="scrim center" onClick={(e) => e.target === e.currentTarget && onCancel()}>
+      <div className="dialog" role="alertdialog" aria-modal="true" aria-label={title} ref={ref}>
         <h2>{title}</h2>
-        {children}
-      </article>
+        <p>{body}</p>
+        <button className="btn danger filled" onClick={onConfirm} disabled={busy}>{busy ? 'Deleting…' : confirmLabel}</button>
+        <button className="btn" onClick={onCancel} autoFocus>{cancelLabel}</button>
+      </div>
     </div>,
     document.body,
   );

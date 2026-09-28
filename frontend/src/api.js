@@ -12,7 +12,10 @@ async function authHeader() {
 
 async function request(path, init = {}) {
   const res = await fetch('/api' + path, { ...init, headers: { ...(await authHeader()), ...init.headers } });
-  if (res.status === 401) supabase.auth.signOut(); // expired session: back to the login screen
+  if (res.status === 401) { // expired session: back to the login screen, which explains why
+    try { sessionStorage.setItem('rentio-expired', '1'); } catch { /* storage blocked */ }
+    supabase.auth.signOut();
+  }
   return res;
 }
 
@@ -36,11 +39,16 @@ export async function download(path, filename) {
   URL.revokeObjectURL(a.href);
 }
 
+// [data, reload, error]. data stays null until loaded; error is a message when the request failed.
 export function useApi(path) {
   const [data, setData] = useState(null);
-  const load = useCallback(() => api(path).then(setData, () => setData([])), [path]);
+  const [error, setError] = useState(null);
+  const load = useCallback(
+    () => api(path).then((d) => { setData(d); setError(null); }, (err) => setError(err.message)),
+    [path],
+  );
   useEffect(() => { if (path) load(); }, [load, path]); // null path = don't fetch
-  return [data, load];
+  return [data, load, error];
 }
 
 // id -> display label for everything a form can reference

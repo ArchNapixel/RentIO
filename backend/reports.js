@@ -117,12 +117,13 @@ export function finance(db, on = today()) {
   });
   return {
     monthly,
-    totals: { income: sum(monthly, (m) => m.income), expectedMonthly: sum(tenantRows(db, on), (t) => t.monthlyRent) },
+    totals: { income: sum(monthly, (m) => m.income), expectedMonthly: sum(tenantRows(db, on), (t) => t.monthlyRent), tenants: tenantRows(db, on).length },
   };
 }
 
 // Checkbox grid for the rent tracker: per property, its current tenants and which months of `year` are paid.
-export function rentGrid(db, year) {
+export function rentGrid(db, year, on = today()) {
+  const paid = paidKeys(db);
   return {
     year,
     properties: db.properties.map((p) => ({
@@ -132,6 +133,7 @@ export function rentGrid(db, year) {
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((t) => ({
           id: t.id, name: t.name, monthlyRent: Number(t.monthlyRent) || 0, startMonth: startIndex(t),
+          monthsBehind: overdueMonths(t, paid, on).length,
           paid: db.rentPayments.filter((r) => r.tenantId === t.id && r.year === year).map((r) => r.month).sort((a, b) => a - b),
         })),
     })),

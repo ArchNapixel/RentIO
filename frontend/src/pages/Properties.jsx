@@ -1,65 +1,93 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, clearHashParams, hashParam, useApi } from '../api.js';
 import { RecordForm } from '../components/Crud.jsx';
-import Doc from '../components/Doc.jsx';
-import Table, { col } from '../components/Table.jsx';
+import Doc, { Confirm } from '../components/Doc.jsx';
+import { I, Icon } from '../components/Icons.jsx';
+import { Empty, LoadError, Loading } from '../components/States.jsx';
+import { toast } from '../components/Toasts.jsx';
 
 export default function Properties() {
-  const [rows, reload] = useApi('/properties');
+  const [rows, reload, loadError] = useApi('/properties');
+  const [tenants] = useApi('/tenants'); // to tell up front when a property can't be deleted
+  const [editing, setEditing] = useState(null); // {} = adding, property = inspecting
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const linked = useRef(hashParam('id')); // "#properties?id=…" (from Nena) opens that property
+
   useEffect(() => {
     clearHashParams();
-    const p = Array.isArray(rows) && rows.find((x) => x.id === linked.current);
+    const p = rows?.find((x) => x.id === linked.current);
     if (p) { linked.current = null; setEditing(p); }
   }, [rows]);
-  const [editing, setEditing] = useState(null); // {} = adding, property = inspecting
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
 
-  const open = (p) => { setError(''); setNotice(''); setEditing(p); };
   function done(saved) {
     const adding = !editing.id;
     setEditing(null);
-    if (saved) { setNotice(adding ? `${saved.name} added.` : `${saved.name} saved.`); reload(); }
+    if (saved) { toast(adding ? `${saved.name} added.` : `${saved.name} saved.`); reload(); }
   }
   async function remove() {
     const p = editing;
-    if (!confirm(`Delete ${p.name}? This can't be undone.`)) return;
+    setDeleting(true);
     try {
       await api(`/properties/${p.id}`, { method: 'DELETE' });
+      setConfirming(false);
       setEditing(null);
-      setNotice(`${p.name} deleted.`);
+      toast(`${p.name} deleted.`);
       reload();
-    } catch (err) { setError(err.message); }
+    } catch (err) {
+      setConfirming(false);
+      toast({ text: err.message, error: true });
+    } finally {
+      setDeleting(false);
+    }
   }
+
+  if (loadError && !rows) return <LoadError what="your properties" onRetry={reload} />;
+  const assigned = editing?.id ? (tenants ?? []).filter((t) => t.propertyId === editing.id).length : 0;
 
   return (
     <>
-      <button className="btn primary add-btn" onClick={() => open({})}>Add property</button>
-      {notice && <p role="status">{notice}</p>}
-      <section className="card">
-        <Table
-          columns={[
-            col('Name', 'name'),
-            col('Type', 'type'),
-            { label: '', get: (p) => <button className="btn sm" onClick={() => open(p)}>Inspect details</button> },
-          ]}
-          rows={rows}
-          empty='No properties yet. Tap "Add property" to add your first one.'
-        />
-      </section>
+      <button className="btn primary block" onClick={() => setEditing({})}><Icon d={I.plus} />Add property</button>
+      <div style={{ height: 12 }} />
+      {!rows && <Loading rows={2} />}
+      {rows?.length === 0 && <Empty title="No properties yet.">Add your first boarding house, dorm, apartment, condo or house.</Empty>}
+      {rows?.length > 0 && (
+        <ul className="card list">
+          {rows.map((p) => (
+            <li key={p.id}>
+              <span className="grow"><span className="title">{p.name}</span><span className="sub">{p.type}</span></span>
+              <button className="link" onClick={() => setEditing(p)}>Inspect details</button>
+            </li>
+          ))}
+        </ul>
+      )}
 
       {editing && (
-        <Doc title={editing.id ? editing.name : 'Add property'} onClose={() => setEditing(null)} printable={false}>
-          <RecordForm name="properties" row={editing} onDone={done} />
-          {editing.id && (
-            <>
-              <h3>Danger zone</h3>
-              {error && <p className="error" role="alert">{error}</p>}
-              <button className="btn danger" onClick={remove}>Delete property</button>
-            </>
-          )}
+        <Doc title={editing.id ? editing.name : 'Add property'} onClose={() => setEditing(null)}>
+          <RecordForm
+            name="properties"
+            row={editing}
+            onDone={done}
+            after={editing.id && (
+              <div className="danger-zone">
+                <h3>Danger zone</h3>
+                <button type="button" className="btn danger" disabled={assigned > 0} onClick={() => setConfirming(true)}>Delete property</button>
+                {assigned > 0 && <p>Can't delete: {assigned} tenant{assigned > 1 ? 's are' : ' is'} still assigned. Move them to another property or archive them first.</p>}
+              </div>
+            )}
+          />
         </Doc>
+      )}
+      {confirming && (
+        <Confirm
+          title={`Delete ${editing.name}?`}
+          body="This can't be undone."
+          confirmLabel={`Delete ${editing.name}`}
+          cancelLabel="Keep property"
+          busy={deleting}
+          onConfirm={remove}
+          onCancel={() => setConfirming(false)}
+        />
       )}
     </>
   );

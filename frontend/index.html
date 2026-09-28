@@ -3,8 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#2f5bea" />
+    <meta name="theme-color" content="#2847d6" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>RentIO</title>
+    <script>
+      // Pick the theme before the first paint: saved choice, otherwise the phone's setting.
+      (function () {
+        var saved = null;
+        try { saved = localStorage.getItem('rentio-theme'); } catch (e) {}
+        document.documentElement.dataset.theme = saved || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
