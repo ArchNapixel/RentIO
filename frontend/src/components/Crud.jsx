@@ -1,65 +1,7 @@
-// Generic list + add/edit/delete for any collection in resources.js.
+// Add/edit form for any collection in resources.js.
 import { useState } from 'react';
-import { api, money, useApi, useLookups } from '../api.js';
+import { api, useLookups } from '../api.js';
 import { resources } from '../resources.js';
-import Table from './Table.jsx';
-
-export default function Crud({ name, filter, extra = [], actions, onChange, addable = true, empty }) {
-  const { title, singular, fields } = resources[name];
-  const [rows, reload] = useApi('/' + name);
-  const [lookups, reloadLookups] = useLookups();
-  const [editing, setEditing] = useState(null); // null | {} (new) | row
-  const [error, setError] = useState('');
-
-  const open = (row) => { setError(''); setEditing(row); };
-  const refresh = () => { reload(); reloadLookups(); onChange?.(); };
-
-  async function remove(row) {
-    if (!confirm(`Delete this ${singular}? This can't be undone.`)) return;
-    try { await api(`/${name}/${row.id}`, { method: 'DELETE' }); setError(''); refresh(); } catch (err) { setError(err.message); }
-  }
-
-  const show = (f, row) => {
-    const v = row[f.key];
-    if (f.ref) return lookups[f.ref]?.[v] ?? '';
-    if (f.money) return v === '' || v == null ? '' : money(v);
-    if (f.type === 'checkbox') return v ? 'Yes' : '';
-    return v ?? '';
-  };
-  const columns = [
-    ...fields.filter((f) => !f.hideInTable).map((f) => ({ label: f.label, get: (r) => show(f, r), num: f.money })),
-    ...extra,
-    {
-      label: '',
-      get: (r) => (
-        <span className="row-actions">
-          {actions?.(r)}
-          <button className="btn sm" onClick={() => open(r)}>Edit</button>
-          <button className="btn sm danger" onClick={() => remove(r)}>Delete</button>
-        </span>
-      ),
-    },
-  ];
-
-  return (
-    <section className="card">
-      <header className="card-head">
-        <h2>{title}</h2>
-        <span className="row-actions">
-          <a className="btn" href={`/api/export/${name}`}>Export CSV</a>
-          {addable && <button className="btn primary" onClick={() => open({})}>Add {singular}</button>}
-        </span>
-      </header>
-      {error && <p className="error" role="alert">{error}</p>}
-      {editing && <RecordForm key={editing.id ?? 'new'} name={name} row={editing} onDone={(saved) => { setEditing(null); if (saved) refresh(); }} />}
-      <Table
-        columns={columns}
-        rows={rows && (filter ? rows.filter(filter) : rows)}
-        empty={empty ?? `No ${title.toLowerCase()} yet.${addable ? ` Use "Add ${singular}" to create one.` : ''}`}
-      />
-    </section>
-  );
-}
 
 // Add/edit form for one record. row = {} adds a new one. onDone(saved) fires on save or cancel.
 export function RecordForm({ name, row, onDone }) {
@@ -83,7 +25,7 @@ export function RecordForm({ name, row, onDone }) {
     } catch (err) { setError(err.message); }
   }
 
-  if (!lookups.units) return <p className="muted">Loading…</p>;
+  if (!lookups.properties) return <p className="muted">Loading…</p>;
   return (
     <form className="form" onSubmit={save} onChange={(e) => setDraft(Object.fromEntries(new FormData(e.currentTarget)))}>
       {error && <p className="error form-error" role="alert">{error}</p>}

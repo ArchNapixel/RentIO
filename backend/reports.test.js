@@ -1,28 +1,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { generateInvoices, invoiceStatus, rentOn, toCsv } from './reports.js';
+import { overdueMonths, rentGrid, tenantRows, toCsv } from './reports.js';
 
-const lease = { id: 'l', startDate: '2025-01-01', endDate: '2026-12-31', rent: 1000, dueDay: 5, escalationPct: 10, escalationEveryMonths: 12 };
+const tenant = { id: 't', name: 'Juan', propertyId: 'p', monthlyRent: 3000, moveInDate: '2026-06-15' };
+const db = {
+  properties: [{ id: 'p', name: 'Casa Luna', type: 'Dormitory', capacity: 10 }],
+  tenants: [tenant],
+  rentPayments: [{ tenantId: 't', year: 2026, month: 6, amount: 3000 }, { tenantId: 't', year: 2026, month: 8, amount: 3000 }],
+};
+const paid = new Set(db.rentPayments.map((p) => `${p.tenantId}:${p.year}:${p.month}`));
 
-test('rent escalates on schedule', () => {
-  assert.equal(rentOn(lease, '2025-12-31'), 1000);
-  assert.equal(rentOn(lease, '2026-01-01'), 1100);
+test('overdue months run from move-in to last month, skipping paid ones', () => {
+  assert.deepEqual(overdueMonths(tenant, paid, '2026-09-28'), [{ year: 2026, month: 7 }]);
+  assert.deepEqual(overdueMonths(tenant, paid, '2026-06-01'), []); // current month is due, not overdue
 });
 
-test('payments settle the oldest invoice first', () => {
-  const db = {
-    leases: [lease],
-    invoices: [{ id: 'b', leaseId: 'l', dueDate: '2025-02-05', amount: 1000 }, { id: 'a', leaseId: 'l', dueDate: '2025-01-05', amount: 1000 }],
-    payments: [{ leaseId: 'l', type: 'rent', amount: 1500 }],
-  };
-  const [a, b] = invoiceStatus(db, '2025-03-01');
-  assert.deepEqual([a.id, a.status, b.status, b.paid, b.balance], ['a', 'paid', 'overdue', 500, 500]);
+test('overdue spans year boundaries', () => {
+  assert.equal(overdueMonths({ ...tenant, moveInDate: '2025-11-01' }, new Set(), '2026-02-10').length, 3); // Nov, Dec, Jan
 });
 
-test('invoice generation uses escalated rent and is idempotent', () => {
-  const [inv] = generateInvoices({ leases: [lease], invoices: [] }, '2026-02');
-  assert.deepEqual([inv.dueDate, inv.amount], ['2026-02-05', 1100]);
-  assert.equal(generateInvoices({ leases: [lease], invoices: [inv] }, '2026-02').length, 0);
+test('tenant rows compute balance from overdue months', () => {
+  const [row] = tenantRows(db, '2026-09-28');
+  assert.deepEqual([row.overdueMonths, row.balance, row.paidThisMonth], ['Jul 2026', 3000, false]);
+});
+
+test('rent grid lists paid months per tenant under their property', () => {
+  const grid = rentGrid(db, 2026);
+  assert.deepEqual(grid.properties[0].tenants[0].paid, [6, 8]);
 });
 
 test('csv escapes quotes and formula injection', () => {

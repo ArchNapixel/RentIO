@@ -1,212 +1,156 @@
-// Pure business logic over a db snapshot ({ properties: [...], units: [...], ... }).
-// Dates are ISO strings (YYYY-MM-DD) so they compare correctly as strings.
+// Pure business logic over a db snapshot: { properties, tenants, rentPayments }.
+// Dates are ISO strings (YYYY-MM-DD). Rent is monthly: a tenant owes every month from their move-in month.
+
+export const PROPERTY_TYPES = ['Boarding house', 'Dormitory', 'Apartment', 'Condominium', 'House'];
+export const SHARED_TYPES = ['Boarding house', 'Dormitory']; // rented per person, have a capacity
+export const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 export const today = () => {
   const d = new Date();
   d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
   return d.toISOString().slice(0, 10);
 };
-const toDate = (iso) => new Date(iso + 'T00:00:00Z');
-export const addDays = (iso, n) => { const d = toDate(iso); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
-export const addMonths = (iso, n) => { const d = toDate(iso); d.setUTCMonth(d.getUTCMonth() + n); return d.toISOString().slice(0, 10); };
-const daysBetween = (a, b) => Math.round((toDate(b) - toDate(a)) / 864e5);
-const monthsBetween = (a, b) => {
-  const [ay, am, ad] = a.split('-').map(Number), [by, bm, bd] = b.split('-').map(Number);
-  return (by - ay) * 12 + (bm - am) - (bd < ad ? 1 : 0);
-};
 const round = (n) => Math.round(n * 100) / 100;
-const sum = (rows, f = (r) => r.amount) => round(rows.reduce((s, r) => s + (Number(f(r)) || 0), 0));
+const sum = (rows, f) => round(rows.reduce((s, r) => s + (Number(f(r)) || 0), 0));
 const pct = (a, b) => (b ? Math.round((a / b) * 1000) / 10 : null);
 const peso = (n) => n.toLocaleString('en-PH', { style: 'currency', currency: 'PHP' });
-const byId = (rows) => Object.fromEntries(rows.map((r) => [r.id, r]));
+const monthIndex = (iso) => { const [y, m] = iso.split('-').map(Number); return y * 12 + m - 1; }; // months since year 0
+const fromIndex = (i) => ({ year: Math.floor(i / 12), month: (i % 12) + 1 });
+export const monthLabel = ({ year, month }) => `${MONTHS[month - 1]} ${year}`;
 
-function labels(db) {
-  const p = byId(db.properties), u = byId(db.units), t = byId(db.tenants);
-  return {
-    unit: (id) => (u[id] ? `${p[u[id].propertyId]?.name ?? '—'} · ${u[id].name}` : '—'),
-    tenant: (id) => t[id]?.name ?? '—',
-  };
-}
+const startIndex = (t) => monthIndex(t.moveInDate || t.createdAt?.slice(0, 10) || today());
+const paidKeys = (db) => new Set(db.rentPayments.map((p) => `${p.tenantId}:${p.year}:${p.month}`));
 
-export const isActive = (lease, on) => !lease.terminated && lease.startDate <= on && on <= lease.endDate;
-
-// ponytail: due day capped at 28 so every month has it; no prorating of partial first months.
-const dueDate = (lease, month) => `${month}-${String(Math.min(Math.max(Number(lease.dueDay) || 1, 1), 28)).padStart(2, '0')}`;
-
-export function rentOn(lease, on) {
-  const every = Number(lease.escalationEveryMonths) || 12;
-  const steps = Math.max(0, Math.floor(monthsBetween(lease.startDate, on) / every));
-  return round(Number(lease.rent) * (1 + (Number(lease.escalationPct) || 0) / 100) ** steps);
-}
-
-export function escalation(db, id) {
-  const l = db.leases.find((x) => x.id === id);
-  if (!l) return null;
-  const L = labels(db), every = Number(l.escalationEveryMonths) || 12, steps = [];
-  for (let i = 0, d = l.startDate; d <= l.endDate; d = addMonths(l.startDate, every * ++i)) steps.push({ from: d, rent: rentOn(l, d) });
-  return { tenant: L.tenant(l.tenantId), unit: L.unit(l.unitId), steps };
-}
-
-// Reconciliation: each lease's rent payments are applied to its invoices, oldest first.
-export function invoiceStatus(db, on = today()) {
+// Months from move-in up to (not including) the current month that are not marked paid.
+export function overdueMonths(tenant, paid, on = today()) {
   const out = [];
-  for (const lease of db.leases) {
-    let credit = sum(db.payments.filter((p) => p.leaseId === lease.id && p.type === 'rent'));
-    const invoices = db.invoices.filter((i) => i.leaseId === lease.id).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
-    for (const inv of invoices) {
-      const paid = Math.min(credit, Number(inv.amount));
-      credit = round(credit - paid);
-      const balance = round(inv.amount - paid);
-      const status = balance <= 0 ? 'paid' : inv.dueDate < on ? 'overdue' : paid > 0 ? 'partial' : 'due';
-      out.push({ ...inv, paid: round(paid), balance, status });
-    }
+  for (let i = startIndex(tenant); i < monthIndex(on); i++) {
+    const { year, month } = fromIndex(i);
+    if (!paid.has(`${tenant.id}:${year}:${month}`)) out.push({ year, month });
   }
   return out;
 }
 
-export function generateInvoices(db, month) {
-  return db.leases
-    .filter((l) => isActive(l, dueDate(l, month)) && !db.invoices.some((i) => i.leaseId === l.id && i.period === month))
-    .map((l) => ({ leaseId: l.id, period: month, dueDate: dueDate(l, month), amount: rentOn(l, dueDate(l, month)), description: `Rent ${month}` }));
-}
-
-export function balances(db) {
-  const L = labels(db);
-  return db.leases.map((l) => {
-    const invoiced = sum(db.invoices.filter((i) => i.leaseId === l.id));
-    const paid = sum(db.payments.filter((p) => p.leaseId === l.id && p.type === 'rent'));
-    return { id: l.id, tenant: L.tenant(l.tenantId), unit: L.unit(l.unitId), invoiced, paid, balance: round(invoiced - paid) };
-  });
-}
-
-export function depositLedger(db) {
-  const L = labels(db);
-  return db.leases.map((l) => {
-    const p = db.payments.filter((x) => x.leaseId === l.id);
-    const required = Number(l.deposit) || 0;
-    const received = sum(p.filter((x) => x.type === 'deposit'));
-    const refunded = sum(p.filter((x) => x.type === 'deposit refund'));
-    return { id: l.id, tenant: L.tenant(l.tenantId), unit: L.unit(l.unitId), required, received, refunded, held: round(received - refunded), outstanding: round(required - received) };
-  });
-}
-
-export function leaseExpiry(db, on = today()) {
-  const L = labels(db);
-  return db.leases
-    .filter((l) => !l.terminated && l.endDate >= on)
-    .map((l) => ({
-      id: l.id, tenant: L.tenant(l.tenantId), unit: L.unit(l.unitId), startDate: l.startDate, endDate: l.endDate,
-      daysLeft: daysBetween(on, l.endDate),
-      noticeDeadline: addDays(l.endDate, -(Number(l.noticeDays) || 0)),
-      renewalStatus: l.renewalStatus || 'pending',
-    }))
-    .sort((a, b) => a.endDate.localeCompare(b.endDate));
-}
-
-export function rentRoll(db, on = today()) {
-  const L = labels(db), bal = Object.fromEntries(balances(db).map((b) => [b.id, b.balance]));
-  return db.units.map((u) => {
-    const l = db.leases.find((x) => x.unitId === u.id && isActive(x, on));
+// One row per current tenant with payment status; shared by the dashboard, alerts, CSV and the assistant.
+export function tenantRows(db, on = today()) {
+  const paid = paidKeys(db), names = Object.fromEntries(db.properties.map((p) => [p.id, p.name]));
+  const { year, month } = fromIndex(monthIndex(on));
+  return db.tenants.filter((t) => !t.archived).map((t) => {
+    const overdue = overdueMonths(t, paid, on);
+    const rent = Number(t.monthlyRent) || 0;
     return {
-      id: u.id, unit: L.unit(u.id), status: l ? 'Occupied' : 'Vacant', tenant: l ? L.tenant(l.tenantId) : '',
-      rent: l ? rentOn(l, on) : Number(u.marketRent) || 0, dueDay: l?.dueDay ?? '', leaseEnd: l?.endDate ?? '', balance: l ? bal[l.id] : 0,
+      id: t.id, name: t.name, propertyId: t.propertyId, property: names[t.propertyId] ?? '—', monthlyRent: rent,
+      paidThisMonth: paid.has(`${t.id}:${year}:${month}`),
+      overdueMonths: overdue.map(monthLabel).join(', '),
+      overdueCount: overdue.length,
+      balance: round(overdue.length * rent),
     };
   });
 }
 
 export function dashboard(db, on = today()) {
-  const occupied = new Set(db.leases.filter((l) => isActive(l, on)).map((l) => l.unitId));
-  const occupiedCount = db.units.filter((u) => occupied.has(u.id)).length;
-  const month = on.slice(0, 7);
-  const invoices = invoiceStatus(db, on);
-  const monthInvoices = invoices.filter((i) => i.dueDate.startsWith(month));
+  const tenants = tenantRows(db, on);
+  const { year, month } = fromIndex(monthIndex(on));
+  const shared = new Set(db.properties.filter((p) => SHARED_TYPES.includes(p.type)).map((p) => p.id));
+  const capacity = sum(db.properties.filter((p) => shared.has(p.id)), (p) => p.capacity);
+  const occupiedBeds = tenants.filter((t) => shared.has(t.propertyId)).length;
   return {
     properties: db.properties.length,
-    units: db.units.length,
-    occupied: occupiedCount,
-    vacant: db.units.length - occupiedCount,
-    occupancyRate: pct(occupiedCount, db.units.length),
-    monthIncome: sum(db.payments.filter((p) => p.date?.startsWith(month) && (p.type === 'rent' || p.type === 'other'))),
-    monthExpenses: sum(db.expenses.filter((e) => e.date?.startsWith(month))),
-    collectionRate: pct(sum(monthInvoices, (i) => i.paid), sum(monthInvoices)),
-    overdue: sum(invoices.filter((i) => i.status === 'overdue'), (i) => i.balance),
-    expiring: leaseExpiry(db, on).filter((l) => l.daysLeft <= 90),
+    tenants: tenants.length,
+    capacity,
+    occupiedBeds,
+    occupancyRate: pct(occupiedBeds, capacity),
+    paidThisMonth: tenants.filter((t) => t.paidThisMonth).length,
+    collectedThisMonth: sum(db.rentPayments.filter((p) => p.year === year && p.month === month), (p) => p.amount),
+    expectedThisMonth: sum(tenants, (t) => t.monthlyRent),
+    overdue: sum(tenants, (t) => t.balance),
+    overdueTenants: tenants.filter((t) => t.overdueCount > 0),
     perProperty: db.properties.map((p) => {
-      const units = db.units.filter((u) => u.propertyId === p.id);
-      const occ = units.filter((u) => occupied.has(u.id)).length;
-      return { id: p.id, name: p.name, units: units.length, occupied: occ, vacant: units.length - occ, occupancy: pct(occ, units.length) };
+      const here = tenants.filter((t) => t.propertyId === p.id);
+      return {
+        id: p.id, name: p.name, type: p.type, capacity: p.capacity ?? null, tenants: here.length,
+        occupancy: p.capacity ? pct(here.length, p.capacity) : null,
+        paidThisMonth: here.filter((t) => t.paidThisMonth).length,
+      };
     }),
   };
 }
 
+// Nena's speech bubble when Gemini isn't available: the most urgent thing first.
+export function quickHint(d, on = today()) {
+  const month = MONTH_NAMES[Number(on.slice(5, 7)) - 1];
+  if (d.properties === 0) return "Hi! I'm Nena, your RentIO assistant. Add your first property, or tap here to ask me anything.";
+  if (d.tenants === 0) return 'No tenants yet. Tap my button to add your first tenant.';
+  const late = d.overdueTenants.length;
+  if (late) return `Heads up: ${late} tenant${late > 1 ? 's have' : ' has'} overdue rent (${peso(d.overdue)}). Tap to ask me who.`;
+  const unpaid = d.tenants - d.paidThisMonth;
+  if (unpaid) return `${unpaid} tenant${unpaid > 1 ? "s haven't" : " hasn't"} paid for ${month} yet.`;
+  return `Everyone has paid for ${month}. Ask me anything.`;
+}
+
 export function alerts(db, on = today()) {
-  const L = labels(db), leases = byId(db.leases), out = [];
-  const who = (leaseId) => `${L.tenant(leases[leaseId]?.tenantId)} (${L.unit(leases[leaseId]?.unitId)})`;
-  for (const i of invoiceStatus(db, on)) {
-    if (i.status === 'overdue') out.push({ id: `overdue-${i.id}`, type: 'Overdue rent', severity: 'high', message: `${who(i.leaseId)} owes ${peso(i.balance)}, due ${i.dueDate}` });
-    else if (i.balance > 0 && daysBetween(on, i.dueDate) <= 5) out.push({ id: `due-${i.id}`, type: 'Rent due soon', severity: 'medium', message: `${who(i.leaseId)}: ${peso(i.balance)} due ${i.dueDate}` });
-  }
-  for (const l of leaseExpiry(db, on)) {
-    if (l.daysLeft <= 60 && l.renewalStatus !== 'renewed') {
-      out.push({ id: `expiry-${l.id}`, type: 'Lease expiring', severity: l.daysLeft <= 30 ? 'high' : 'medium', message: `${l.tenant} (${l.unit}) ends ${l.endDate}, ${l.daysLeft} days left. Renewal: ${l.renewalStatus}` });
+  const out = [];
+  const current = monthLabel(fromIndex(monthIndex(on)));
+  for (const t of tenantRows(db, on)) {
+    if (t.overdueCount) {
+      out.push({
+        id: `overdue-${t.id}-${t.overdueCount}`, type: 'Overdue rent', severity: t.overdueCount > 1 ? 'high' : 'medium',
+        message: `${t.name} (${t.property}) hasn't paid ${t.overdueMonths}${t.balance ? `: ${peso(t.balance)}` : ''}`,
+      });
+    } else if (!t.paidThisMonth) {
+      out.push({ id: `unpaid-${t.id}-${current}`, type: 'Not yet paid', severity: 'low', message: `${t.name} (${t.property}) hasn't paid for ${current} yet` });
     }
-    const n = daysBetween(on, l.noticeDeadline);
-    if (n >= 0 && n <= 14) out.push({ id: `notice-${l.id}`, type: 'Notice deadline', severity: 'medium', message: `${l.tenant} (${l.unit}) notice deadline ${l.noticeDeadline}, ${n} days left` });
   }
-  for (const u of rentRoll(db, on)) if (u.status === 'Vacant') out.push({ id: `vacant-${u.id}`, type: 'Vacancy', severity: 'low', message: `${u.unit} is vacant` });
+  for (const p of dashboard(db, on).perProperty) {
+    if (p.capacity && p.tenants < p.capacity) out.push({ id: `vacancy-${p.id}-${p.tenants}`, type: 'Vacancy', severity: 'low', message: `${p.name} has ${p.capacity - p.tenants} of ${p.capacity} spots open` });
+  }
   const rank = { high: 0, medium: 1, low: 2 };
   return out.sort((a, b) => rank[a.severity] - rank[b.severity]);
 }
 
 export function finance(db, on = today()) {
-  const first = `${on.slice(0, 7)}-01`;
-  const month = (n) => addMonths(first, n).slice(0, 7);
-  const paid = (m, type) => sum(db.payments.filter((p) => p.date?.startsWith(m) && p.type === type));
+  const now = monthIndex(on);
   const monthly = Array.from({ length: 12 }, (_, i) => {
-    const m = month(i - 11);
-    const income = round(paid(m, 'rent') + paid(m, 'other'));
-    const expenses = sum(db.expenses.filter((e) => e.date?.startsWith(m)));
-    const depositsIn = paid(m, 'deposit'), depositsOut = paid(m, 'deposit refund');
-    return { month: m, income, expenses, profit: round(income - expenses), depositsIn, depositsOut, cashFlow: round(income + depositsIn - depositsOut - expenses) };
+    const { year, month } = fromIndex(now - 11 + i);
+    return { month: `${year}-${String(month).padStart(2, '0')}`, income: sum(db.rentPayments.filter((p) => p.year === year && p.month === month), (p) => p.amount) };
   });
-  const categories = {};
-  for (const e of db.expenses) if (e.date >= `${month(-11)}-01`) categories[e.category] = round((categories[e.category] || 0) + Number(e.amount));
-  const projection = Array.from({ length: 12 }, (_, i) => {
-    const m = month(i);
-    const active = db.leases.filter((l) => isActive(l, dueDate(l, m)));
-    return { month: m, leases: active.length, income: sum(active, (l) => rentOn(l, dueDate(l, m))) };
-  });
-  const due = invoiceStatus(db, on).filter((i) => i.dueDate <= on);
   return {
     monthly,
-    projection,
-    categories: Object.entries(categories).map(([category, amount]) => ({ category, amount })).sort((a, b) => b.amount - a.amount),
-    totals: {
-      income: sum(monthly, (m) => m.income),
-      expenses: sum(monthly, (m) => m.expenses),
-      profit: sum(monthly, (m) => m.profit),
-      collectionRate: pct(sum(due, (i) => i.paid), sum(due)),
-    },
+    totals: { income: sum(monthly, (m) => m.income), expectedMonthly: sum(tenantRows(db, on), (t) => t.monthlyRent) },
+  };
+}
+
+// Checkbox grid for the rent tracker: per property, its current tenants and which months of `year` are paid.
+export function rentGrid(db, year) {
+  return {
+    year,
+    properties: db.properties.map((p) => ({
+      id: p.id, name: p.name, type: p.type, capacity: p.capacity ?? null,
+      tenants: db.tenants
+        .filter((t) => t.propertyId === p.id && !t.archived)
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((t) => ({
+          id: t.id, name: t.name, monthlyRent: Number(t.monthlyRent) || 0, startMonth: startIndex(t),
+          paid: db.rentPayments.filter((r) => r.tenantId === t.id && r.year === year).map((r) => r.month).sort((a, b) => a - b),
+        })),
+    })),
   };
 }
 
 export function tenantSummary(db, id, on = today()) {
   const tenant = db.tenants.find((t) => t.id === id);
   if (!tenant) return null;
-  const L = labels(db);
-  const leases = db.leases
-    .filter((l) => l.tenantId === id)
-    .sort((a, b) => b.startDate.localeCompare(a.startDate))
-    .map((l) => ({ ...l, unit: L.unit(l.unitId), currentRent: rentOn(l, on), active: isActive(l, on) }));
-  const ids = new Set(leases.map((l) => l.id));
-  const invoices = invoiceStatus(db, on).filter((i) => ids.has(i.leaseId));
+  const overdue = overdueMonths(tenant, paidKeys(db), on);
   return {
     tenant,
-    leases,
-    invoices,
-    payments: db.payments.filter((p) => ids.has(p.leaseId)).sort((a, b) => b.date.localeCompare(a.date)),
-    violations: db.violations.filter((v) => ids.has(v.leaseId)),
-    balance: sum(invoices, (i) => i.balance),
+    property: db.properties.find((p) => p.id === tenant.propertyId)?.name ?? '—',
+    payments: db.rentPayments
+      .filter((p) => p.tenantId === id)
+      .sort((a, b) => b.year - a.year || b.month - a.month)
+      .map((p) => ({ id: `${p.year}-${p.month}`, month: monthLabel(p), amount: Number(p.amount), paidAt: p.paidAt?.slice(0, 10) })),
+    overdueMonths: overdue.map(monthLabel),
+    balance: round(overdue.length * (Number(tenant.monthlyRent) || 0)),
   };
 }
 

@@ -1,173 +1,123 @@
 import express from 'express';
-import { GoogleGenAI } from '@google/genai';
 import * as store from './store.js';
 import * as r from './reports.js';
+import * as nena from './nena.js';
+import { demoData } from './demo.js';
+import { bad, clean } from './validate.js';
 
 const PORT = process.env.PORT || 4000;
 const app = express();
+app.use('/api/ai', express.json({ limit: '8mb' })); // receipt photos and voice recordings
 app.use(express.json());
 
-const snapshot = () => Object.fromEntries(store.collections.map((c) => [c, store.list(c)]));
-const bad = (message, status = 400) => Object.assign(new Error(message), { status });
+// Guests (not logged in) can only see a sample dashboard.
+app.get('/api/demo/dashboard', (req, res) => res.json(r.dashboard(demoData())));
+
+// Everything below needs a login. req.owner = the logged-in user's id; all data is scoped to it.
+app.use('/api', async (req, res, next) => {
+  const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1];
+  if (!token) return next(bad('Please log in.', 401));
+  req.owner = await store.verify(token);
+  next(req.owner ? undefined : bad('Your session has expired. Please log in again.', 401));
+});
 
 const reports = {
   dashboard: r.dashboard,
-  'rent-roll': r.rentRoll,
-  'lease-expiry': r.leaseExpiry,
   alerts: r.alerts,
-  invoices: r.invoiceStatus,
-  balances: r.balances,
-  deposits: r.depositLedger,
   finance: r.finance,
-  'profit-loss': (db) => r.finance(db).monthly,
+  'tenant-balances': r.tenantRows,
 };
+// Who points at whom: friendlier message than the database's foreign-key error.
+const referencedBy = { properties: [['tenants', 'propertyId']] };
 
-const required = {
-  properties: ['name', 'type'],
-  units: ['propertyId', 'name'],
-  tenants: ['name', 'propertyId'],
-  leases: ['tenantId', 'unitId', 'startDate', 'endDate', 'rent'],
-  payments: ['leaseId', 'date', 'amount', 'type'],
-  invoices: ['leaseId', 'dueDate', 'amount'],
-  expenses: ['date', 'category', 'amount'],
-  violations: ['leaseId', 'date', 'description'],
-};
-const numeric = new Set(['rent', 'amount', 'deposit', 'escalationPct', 'escalationEveryMonths', 'noticeDays', 'dueDay', 'bedrooms', 'marketRent', 'capacity']);
-// Who points at whom: blocks deletes that would orphan records.
-const referencedBy = {
-  properties: [['units', 'propertyId'], ['tenants', 'propertyId'], ['expenses', 'propertyId']],
-  units: [['leases', 'unitId']],
-  tenants: [['leases', 'tenantId']],
-  leases: [['payments', 'leaseId'], ['invoices', 'leaseId'], ['violations', 'leaseId']],
-};
-
-function clean(collection, body) {
-  if (!body || typeof body !== 'object' || Array.isArray(body)) throw bad('Request body must be a JSON object');
-  const row = {};
-  for (const [k, v] of Object.entries(body)) {
-    if (k === 'id') continue;
-    row[k] = numeric.has(k) && v !== '' && v != null ? Number(v) : v;
-    if (Number.isNaN(row[k])) throw bad(`${k} must be a number`);
-  }
-  for (const k of required[collection]) if (row[k] == null || row[k] === '') throw bad(`${k} is required`);
-  if (collection === 'properties' && ['Boarding house', 'Dormitory'].includes(row.type) && !(Number.isInteger(row.capacity) && row.capacity > 0)) {
-    throw bad('Boarding houses and dormitories need a total capacity of at least 1 person');
-  }
-  if (row.startDate && row.endDate && row.endDate < row.startDate) throw bad('End date must be on or after the start date');
-  return row;
-}
-
-const generateFor = (month) => r.generateInvoices(snapshot(), month).map((inv) => store.create('invoices', inv));
-
-app.get('/api/reports/:name', (req, res) => {
+app.get('/api/reports/:name', async (req, res) => {
   const report = reports[req.params.name];
   if (!report) throw bad('Unknown report', 404);
-  res.json(report(snapshot()));
+  res.json(report(await store.snapshot(req.owner)));
 });
 
-app.get('/api/export/:name', (req, res) => {
+app.get('/api/export/:name', async (req, res) => {
   const { name } = req.params;
-  const rows = reports[name] ? reports[name](snapshot()) : store.collections.includes(name) ? store.list(name) : null;
+  const rows = reports[name] ? reports[name](await store.snapshot(req.owner)) : store.collections.includes(name) ? await store.list(req.owner, name) : null;
   if (!Array.isArray(rows)) throw bad('Nothing to export under that name', 404);
-  res.attachment(`${name}-${r.today()}.csv`).send(r.toCsv(rows));
+  res.attachment(`${name}-${r.today()}.csv`).send(r.toCsv(rows.map(({ ownerId, ...row }) => row)));
 });
 
-app.get('/api/tenants/:id/summary', (req, res) => {
-  const summary = r.tenantSummary(snapshot(), req.params.id);
+app.get('/api/tenants/:id/summary', async (req, res) => {
+  const summary = r.tenantSummary(await store.snapshot(req.owner), req.params.id);
   if (!summary) throw bad('Tenant not found', 404);
   res.json(summary);
 });
 
-app.get('/api/leases/:id/escalation', (req, res) => {
-  const schedule = r.escalation(snapshot(), req.params.id);
-  if (!schedule) throw bad('Lease not found', 404);
-  res.json(schedule);
+// Rent tracker: which months each tenant has paid, and ticking/unticking a month.
+app.get('/api/rent', async (req, res) => {
+  const year = Number(req.query.year) || Number(r.today().slice(0, 4));
+  if (year < 2000 || year > 2100) throw bad('Year must be between 2000 and 2100');
+  res.json(r.rentGrid(await store.snapshot(req.owner), year));
 });
 
-app.post('/api/invoices/generate', (req, res) => {
-  const month = req.body?.month ?? r.today().slice(0, 7);
-  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw bad('Month must look like 2026-09');
-  res.status(201).json(generateFor(month));
+app.put('/api/rent/:tenantId/:year/:month', async (req, res) => {
+  const year = Number(req.params.year), month = Number(req.params.month);
+  if (!Number.isInteger(year) || year < 2000 || year > 2100 || !Number.isInteger(month) || month < 1 || month > 12) throw bad('Invalid month');
+  if (typeof req.body?.paid !== 'boolean') throw bad('paid must be true or false');
+  const tenant = await store.get(req.owner, 'tenants', req.params.tenantId);
+  if (!tenant) throw bad('Tenant not found', 404);
+  await store.setPaid(req.owner, tenant.id, year, month, req.body.paid, Number(tenant.monthlyRent) || 0);
+  res.json({ tenantId: tenant.id, year, month, paid: req.body.paid });
 });
 
-// AI assistant: answers questions from a live summary of the data.
-// ponytail: whole summary goes in every prompt; switch to Gemini function calling if portfolios grow to thousands of units.
-const ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }) : null;
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-flash-latest';
-
-app.post('/api/ai/chat', async (req, res) => {
-  if (!ai) throw bad('Nena, the assistant, is not set up. Add GEMINI_API_KEY to backend/.env and restart the server.', 503);
-  const messages = req.body?.messages;
-  if (!Array.isArray(messages) || !messages.length || messages.at(-1)?.role !== 'user') throw bad('Send at least one user message');
-  const db = snapshot();
-  const context = {
-    today: r.today(),
-    dashboard: r.dashboard(db),
-    properties: db.properties,
-    rentRoll: r.rentRoll(db),
-    alerts: r.alerts(db),
-    leaseExpiry: r.leaseExpiry(db),
-    balances: r.balances(db),
-    deposits: r.depositLedger(db),
-    finance: r.finance(db),
-  };
-  try {
-    const result = await ai.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: messages.slice(-20).map((m) => ({ role: m.role === 'user' ? 'user' : 'model', parts: [{ text: String(m.text ?? '').slice(0, 4000) }] })),
-      config: {
-        systemInstruction: [
-          'You are Nena, the RentIO assistant, helping a property manager in the Philippines. Introduce yourself as Nena when greeting or when asked who you are. Be warm, friendly and concise.',
-          'Answer only from the data below. If the data does not contain the answer, say so plainly. Never invent tenants, units or amounts.',
-          'Amounts are Philippine pesos; format them like ₱12,500.00. Keep answers short and in plain text (no Markdown; use simple dashes for lists). Reply in the language the user writes in (English, Filipino or Taglish).',
-          `DATA (JSON): ${JSON.stringify(context)}`,
-        ].join('\n'),
-      },
-    });
-    // The chat shows plain text, so strip the Markdown Gemini still sometimes adds.
-    const reply = (result.text ?? '').replace(/\*\*(.+?)\*\*/g, '$1').replace(/^(\s*)\* /gm, '$1- ').trim();
-    res.json({ reply: reply || "I couldn't come up with an answer. Try rephrasing." });
-  } catch (err) {
-    console.error('Gemini error:', err.message);
-    throw bad('Nena is unavailable right now. Try again in a minute.', 502);
-  }
+// Nena. ponytail: one global rate limit per server process; per-owner limits if one account starts hogging it.
+const aiHits = [];
+app.use('/api/ai', (req, res, next) => {
+  const now = Date.now();
+  while (aiHits.length && now - aiHits[0] > 60_000) aiHits.shift();
+  if (aiHits.length >= 40) return next(bad('Nena is getting too many requests. Wait a minute and try again.', 429));
+  aiHits.push(now);
+  next();
 });
+app.post('/api/ai/chat', async (req, res) => res.json(await nena.chat(req.owner, req.body?.messages)));
+app.post('/api/ai/execute', async (req, res) => res.json(await nena.execute(req.owner, req.body?.tool, req.body?.args)));
+app.get('/api/ai/insight', async (req, res) => res.json(await nena.insight(req.owner)));
+app.post('/api/ai/transcribe', async (req, res) => res.json(await nena.transcribe(req.body?.audio)));
 
-// Generic CRUD for every collection
+// Generic CRUD for properties and tenants
 app.param('collection', (req, res, next, c) => next(store.collections.includes(c) ? undefined : bad(`Unknown resource "${c}"`, 404)));
-app.get('/api/:collection', (req, res) => res.json(store.list(req.params.collection)));
-app.get('/api/:collection/:id', (req, res) => {
-  const row = store.get(req.params.collection, req.params.id);
+
+// A tenant can only be assigned to one of the owner's own properties.
+async function checkRow(owner, c, row) {
+  if (c === 'tenants' && !(await store.get(owner, 'properties', row.propertyId))) throw bad('Choose one of your properties.');
+  return row;
+}
+
+app.get('/api/:collection', async (req, res) => res.json(await store.list(req.owner, req.params.collection)));
+app.get('/api/:collection/:id', async (req, res) => {
+  const row = await store.get(req.owner, req.params.collection, req.params.id);
   if (!row) throw bad('Not found', 404);
   res.json(row);
 });
-app.post('/api/:collection', (req, res) => {
+app.post('/api/:collection', async (req, res) => {
   const c = req.params.collection;
-  res.status(201).json(store.create(c, clean(c, req.body)));
+  res.status(201).json(await store.create(req.owner, c, await checkRow(req.owner, c, clean(c, req.body))));
 });
-app.put('/api/:collection/:id', (req, res) => {
+app.put('/api/:collection/:id', async (req, res) => {
   const c = req.params.collection;
-  const row = store.update(c, req.params.id, clean(c, req.body));
+  const row = await store.update(req.owner, c, req.params.id, await checkRow(req.owner, c, clean(c, req.body)));
   if (!row) throw bad('Not found', 404);
   res.json(row);
 });
-app.delete('/api/:collection/:id', (req, res) => {
+app.delete('/api/:collection/:id', async (req, res) => {
   const { collection: c, id } = req.params;
   for (const [child, key] of referencedBy[c] ?? []) {
-    const n = store.list(child).filter((row) => row[key] === id).length;
-    if (n) throw bad(`Can't delete: ${n} ${child} still reference it. Remove those first${c === 'tenants' ? ', or archive the tenant' : ''}.`, 409);
+    const n = (await store.list(req.owner, child)).filter((row) => row[key] === id).length;
+    if (n) throw bad(`Can't delete: ${n} ${child} are still assigned to it. Move or remove them first.`, 409);
   }
-  if (!store.remove(c, id)) throw bad('Not found', 404);
+  if (!(await store.remove(req.owner, c, id))) throw bad('Not found', 404);
   res.status(204).end();
 });
 
 app.use((err, req, res, next) => {
-  if (!err.status) console.error(err);
-  res.status(err.status ?? 500).json({ error: err.status ? err.message : 'Something went wrong on the server. Try again.' });
+  if (!err.expose) console.error(err);
+  res.status(err.expose ? err.status : 500).json({ error: err.expose ? err.message : 'Something went wrong on the server. Try again.' });
 });
-
-// Automated rent invoices: backfill the last 3 months on boot, then check daily. Idempotent.
-for (const n of [-2, -1, 0]) generateFor(r.addMonths(`${r.today().slice(0, 7)}-01`, n).slice(0, 7));
-setInterval(() => generateFor(r.today().slice(0, 7)), 864e5);
 
 app.listen(PORT, () => console.log(`RentIO API on http://localhost:${PORT}`));

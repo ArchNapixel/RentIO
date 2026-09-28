@@ -7,7 +7,7 @@ export default function Table({ columns, rows, empty = 'Nothing here yet.' }) {
   if (!rows) return <p className="muted">Loading…</p>;
   if (!rows.length) return <p className="empty">{empty}</p>;
   return (
-    <div className="table-wrap">
+    <div className="table-wrap stack">{/* .stack: rows become cards on phones */}
       <table>
         <thead>
           <tr>{columns.map((c) => <th key={c.label} className={c.num ? 'num' : undefined}>{c.label}</th>)}</tr>
@@ -15,7 +15,7 @@ export default function Table({ columns, rows, empty = 'Nothing here yet.' }) {
         <tbody>
           {rows.map((r, i) => (
             <tr key={r.id ?? i}>
-              {columns.map((c) => <td key={c.label} className={c.num ? 'num' : undefined}>{c.get(r)}</td>)}
+              {columns.map((c) => <td key={c.label} data-label={c.label} className={c.num ? 'num' : undefined}>{c.get(r)}</td>)}
             </tr>
           ))}
         </tbody>

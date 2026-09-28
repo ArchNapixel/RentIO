@@ -5,9 +5,10 @@ const SEEN_KEY = 'rentio-notified';
 const supported = 'Notification' in window;
 
 // ponytail: browser notifications while the app is open. Real push (service worker + web-push) comes with the mobile app.
-export function useAlertNotifier() {
+export function useAlertNotifier(enabled = true) {
   const [count, setCount] = useState(0);
   useEffect(() => {
+    if (!enabled) return;
     async function check() {
       try {
         const alerts = await api('/reports/alerts');
@@ -22,7 +23,7 @@ export function useAlertNotifier() {
     check();
     const timer = setInterval(check, 5 * 60_000);
     return () => clearInterval(timer);
-  }, []);
+  }, [enabled]);
   return count;
 }
 
@@ -39,7 +40,7 @@ export default function Alerts() {
         </header>
         <p className="muted">
           {permission === 'granted' && 'On. RentIO checks every 5 minutes and notifies you of new alerts.'}
-          {permission === 'default' && 'Get notified about overdue rent, expiring leases and vacancies.'}
+          {permission === 'default' && 'Get notified about overdue and unpaid rent and open spots.'}
           {permission === 'denied' && 'Blocked. Allow notifications for this site in your browser settings.'}
           {permission === 'unsupported' && "This browser doesn't support notifications."}
         </p>
@@ -47,7 +48,7 @@ export default function Alerts() {
       <section className="card">
         <h2>Active alerts</h2>
         {!alerts && <p className="muted">Loading…</p>}
-        {alerts?.length === 0 && <p className="empty">All clear. Nothing overdue, expiring or vacant.</p>}
+        {alerts?.length === 0 && <p className="empty">All clear. Nobody is behind on rent.</p>}
         <ul className="alerts">
           {alerts?.map((a) => (
             <li key={a.id} className={`alert ${a.severity}`}>
