@@ -170,9 +170,10 @@ export function rentGrid(db, year, on = today()) {
 export function tenantSummary(db, id, on = today()) {
   const tenant = db.tenants.find((t) => t.id === id);
   if (!tenant) return null;
-  const overdue = overdueMonths(tenant, paidKeys(db), on);
+  const paid = paidKeys(db), overdue = overdueMonths(tenant, paid, on);
   return {
     tenant,
+    due: dueMonths(tenant, paid, on),
     property: db.properties.find((p) => p.id === tenant.propertyId)?.name ?? '—',
     payments: db.rentPayments
       .filter((p) => p.tenantId === id)

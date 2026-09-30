@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { overdueDigest, overdueMonths, rentGrid, tenantRows, toCsv } from './reports.js';
+import { overdueDigest, overdueMonths, rentGrid, tenantRows, tenantSummary, toCsv } from './reports.js';
 
 const tenant = { id: 't', name: 'Juan', propertyId: 'p', monthlyRent: 3000, moveInDate: '2026-06-15' };
 const db = {
@@ -34,6 +34,10 @@ test('rent grid lists every unpaid month to collect, including the current one',
   assert.deepEqual(due('2026-09-10'), [{ year: 2026, month: 7 }, { year: 2026, month: 9 }]);
   assert.deepEqual(due('2026-08-10'), [{ year: 2026, month: 7 }]); // Aug is paid, Jul still owed
   assert.deepEqual(due('2026-05-10'), []); // hasn't moved in yet
+});
+
+test('tenant summary includes the months to collect for the pay button', () => {
+  assert.deepEqual(tenantSummary(db, 't', '2026-09-10').due, [{ year: 2026, month: 7 }, { year: 2026, month: 9 }]);
 });
 
 test('overdue digest lists late tenants, and is empty when nobody is late', () => {

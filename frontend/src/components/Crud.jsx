@@ -1,8 +1,9 @@
 // Add/edit form for any collection in resources.js.
-import { useState } from 'react';
-import { api, money, useLookups } from '../api.js';
+import { useRef, useState } from 'react';
+import { api, money, useApi, useLookups } from '../api.js';
 import { resources } from '../resources.js';
 import { I, Icon } from './Icons.jsx';
+import { DateField, Select } from './Picker.jsx';
 
 // "3500", "3,500" or "₱3,500" → 3500; null when it isn't a number.
 const parseMoney = (s) => {
@@ -17,11 +18,35 @@ export function RecordForm({ name, row, onDone, before, after }) {
   const [lookups] = useLookups();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const formRef = useRef(null);
   const [draft, setDraft] = useState(null); // live form values, for fields with showIf
 
-  const initial = (f) => (row.id ? row[f.key] : f.default?.());
+  // New tenants start with the rent the last tenant at that property pays (rooms there usually cost the same).
+  const [others, , othersError] = useApi(name === 'tenants' && !row.id ? '/tenants' : null);
+  const rents = {};
+  for (const t of [...(others ?? [])].sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1))) if (t.monthlyRent > 0) rents[t.propertyId] = t.monthlyRent;
+
+  const initial = (f) => {
+    if (row.id) return row[f.key];
+    if (f.key === 'monthlyRent' && rents[row.propertyId]) return rents[row.propertyId];
+    return row[f.key] ?? f.default?.();
+  };
   const values = draft ?? Object.fromEntries(fields.map((f) => [f.key, initial(f)]));
   const visible = fields.filter((f) => !f.showIf || f.showIf(values));
+  const main = visible.filter((f) => !f.more), more = visible.filter((f) => f.more);
+
+  // Live values for showIf. Picked values are passed in because the hidden input only updates after the next render.
+  const sync = (picked) => setDraft({ ...Object.fromEntries(new FormData(formRef.current)), ...picked });
+  const rentBox = () => formRef.current.elements.monthlyRent;
+  const onChange = (e) => {
+    sync();
+    if (e.target.name === 'monthlyRent') e.target.dataset.typed = '1';
+  };
+  // Picking a property fills in its usual rent, unless the owner already typed one.
+  const onPick = (key, value) => {
+    sync({ [key]: value });
+    if (key === 'propertyId' && rentBox() && !rentBox().dataset.typed && rents[value]) rentBox().value = money(rents[value]);
+  };
 
   async function save(e) {
     e.preventDefault();
@@ -34,6 +59,7 @@ export function RecordForm({ name, row, onDone, before, after }) {
         body[f.key] = v;
       }
       if (f.showIf && !f.showIf(body)) body[f.key] = null; // clear values of hidden fields
+      else if (f.required && (f.ref || f.options) && !f.chips && !body[f.key]) return setError(`${f.label}: choose one from the list.`);
     }
     setBusy(true);
     try {
@@ -45,11 +71,17 @@ export function RecordForm({ name, row, onDone, before, after }) {
     }
   }
 
-  if (!lookups.properties) return <p className="muted">Loading…</p>;
+  if (!lookups.properties || (name === 'tenants' && !row.id && !others && !othersError)) return <p className="muted">Loading…</p>;
   return (
-    <form className="form" onSubmit={save} onChange={(e) => setDraft(Object.fromEntries(new FormData(e.currentTarget)))} noValidate={false}>
+    <form className="form" ref={formRef} onSubmit={save} onChange={onChange}>
       {before}
-      {visible.map((f, i) => <Field key={f.key} f={f} value={initial(f)} lookups={lookups} autoFocus={i === 0 && !row.id} />)}
+      {main.map((f, i) => <Field key={f.key} f={f} value={initial(f)} lookups={lookups} onPick={onPick} autoFocus={i === 0 && !row.id} />)}
+      {more.length > 0 && (
+        <details className="more" open={Boolean(row.id) && more.some((f) => row[f.key])}>
+          <summary>More details</summary>
+          <div className="form">{more.map((f) => <Field key={f.key} f={f} value={initial(f)} lookups={lookups} onPick={onPick} />)}</div>
+        </details>
+      )}
       {after}
       {error && <p className="box error" role="alert"><Icon d={I.alert} />{error}</p>}
       <div className="form-actions">
@@ -60,7 +92,7 @@ export function RecordForm({ name, row, onDone, before, after }) {
   );
 }
 
-function Field({ f, value, lookups, autoFocus }) {
+function Field({ f, value, lookups, onPick, autoFocus }) {
   const v = value ?? '';
   const [fieldError, setFieldError] = useState('');
   const id = `f-${f.key}`;
@@ -80,12 +112,9 @@ function Field({ f, value, lookups, autoFocus }) {
   }
   if (f.ref || f.options) {
     const opts = f.ref ? Object.entries(lookups[f.ref] ?? {}) : f.options.map((o) => [o, o]);
-    input = (
-      <select id={id} autoFocus={autoFocus} name={f.key} defaultValue={v} required={f.required}>
-        <option value="">{f.required ? 'Choose…' : '—'}</option>
-        {opts.map(([val, label]) => <option key={val} value={val}>{label}</option>)}
-      </select>
-    );
+    input = <Select id={id} name={f.key} defaultValue={v} options={opts} clear={f.required ? undefined : '—'} title={f.label} autoFocus={autoFocus} onChange={(val) => onPick(f.key, val)} />;
+  } else if (f.type === 'date') {
+    input = <DateField id={id} name={f.key} defaultValue={v} title={f.label} autoFocus={autoFocus} onChange={(val) => onPick(f.key, val)} />;
   } else if (f.type === 'textarea') {
     input = <textarea id={id} autoFocus={autoFocus} name={f.key} defaultValue={v} rows={3} required={f.required} />;
   } else if (f.type === 'checkbox') {

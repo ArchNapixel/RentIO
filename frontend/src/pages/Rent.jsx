@@ -5,8 +5,7 @@ import { api, clearHashParams, hashParam, money, today, useApi } from '../api.js
 import { I, Icon } from '../components/Icons.jsx';
 import { Empty, LoadError, Loading } from '../components/States.jsx';
 import { toast } from '../components/Toasts.jsx';
-
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+import { MONTHS, monthName, payMonths } from '../pay.js';
 
 export default function Rent() {
   const thisYear = Number(today().slice(0, 4));
@@ -40,30 +39,11 @@ export default function Rent() {
     }
   }
 
-  // Marks months paid in one request, then offers a single Undo for the whole batch.
-  async function pay(tenant, months, undoable = true) {
-    setPaying((s) => ({ ...s, [tenant.id]: true }));
-    try {
-      await api(`/rent/${tenant.id}`, { method: 'PUT', body: { months, paid: true } });
-      await reload();
-      if (undoable) toast({ text: `${tenant.name} · ${months.length === 1 ? monthName(months[0]) : `${months.length} months`} paid`, action: 'Undo', onAction: () => unpay(tenant, months) });
-    } catch {
-      toast({ text: `Couldn't save ${tenant.name}'s payment.`, action: 'Try again', onAction: () => pay(tenant, months, undoable), error: true });
-    } finally {
-      setPaying(({ [tenant.id]: _, ...rest }) => rest);
-    }
+  async function pay(tenant, months) {
+    setPaying((s) => ({ ...s, [tenant.id]: true })); // hides the row right away
+    await payMonths(tenant, months, reload);
+    setPaying(({ [tenant.id]: _, ...rest }) => rest);
   }
-
-  async function unpay(tenant, months) {
-    try {
-      await api(`/rent/${tenant.id}`, { method: 'PUT', body: { months, paid: false } });
-      await reload();
-    } catch {
-      toast({ text: `Couldn't undo ${tenant.name}'s payment.`, action: 'Try again', onAction: () => unpay(tenant, months), error: true });
-    }
-  }
-
-  const monthName = ({ year: y, month }) => `${MONTHS[month - 1]}${y === thisYear ? '' : ` ${y}`}`;
 
   if (error && !grid) return <LoadError what="the rent tracker" onRetry={reload} />;
 

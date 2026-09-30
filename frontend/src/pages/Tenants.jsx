@@ -1,32 +1,69 @@
+// Tenants: a searchable list (who owes first), a read-only sheet per tenant with a one-tap pay button,
+// and an Edit step behind it. Moving out is a button; deleting lives at the bottom of Edit.
 import { useEffect, useState } from 'react';
-import { api, clearHashParams, download, hashParam, money, useApi, useLookups } from '../api.js';
+import { api, clearHashParams, download, hashParam, money, today, useApi, useLookups } from '../api.js';
 import { RecordForm } from '../components/Crud.jsx';
 import Doc, { Confirm } from '../components/Doc.jsx';
 import { I, Icon } from '../components/Icons.jsx';
+import { Select } from '../components/Picker.jsx';
 import { Empty, LoadError, Loading } from '../components/States.jsx';
 import Table, { col, mcol } from '../components/Table.jsx';
 import { toast } from '../components/Toasts.jsx';
+import { MONTHS, monthName, payMonths } from '../pay.js';
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const monthOf = (iso) => `${MONTHS[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`;
 
 export default function Tenants() {
   const [rows, reload, loadError] = useApi('/tenants');
+  const [balances, reloadBalances] = useApi('/reports/tenant-balances'); // current tenants only
   const [lookups] = useLookups();
-  const [archived, setArchived] = useState(false);
+  const [tab, setTab] = useState('current'); // current | moved
+  const [query, setQuery] = useState('');
+  const [propertyId, setPropertyId] = useState('');
   const [details, setDetails] = useState(null); // tenant summary from the API
+  const [editing, setEditing] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  useEffect(() => { // "#tenants?id=…" (from Nena) opens that tenant's details
+  useEffect(() => { // "#tenants?id=…" (from Nena) opens that tenant's sheet
     const id = hashParam('id');
     clearHashParams();
     if (id) inspect({ id });
   }, []);
 
+  const summaryPath = (id) => `/tenants/${id}/summary`;
   async function inspect(t) {
-    try { setDetails(await api(`/tenants/${t.id}/summary`)); } catch (err) { toast({ text: err.message, error: true }); }
+    try { setEditing(false); setDetails(await api(summaryPath(t.id))); } catch (err) { toast({ text: err.message, error: true }); }
   }
+  const refreshAll = () => { reload(); reloadBalances(); };
+  // After a payment: update the sheet and the list behind it. Errors are swallowed so a good save never shows as failed.
+  const refreshSheet = async (id) => {
+    await Promise.all([api(summaryPath(id)).then(setDetails), reload(), reloadBalances()]).catch(() => {});
+  };
+
   function saved(tenant) {
-    setDetails(null);
-    if (tenant) { toast(`${tenant.name}'s details saved.`); reload(); }
+    if (!tenant) return setEditing(false); // Cancel goes back to the sheet
+    toast(`${tenant.name}'s details saved.`);
+    setEditing(false);
+    refreshSheet(tenant.id);
+  }
+  function added(tenant) {
+    setAdding(false);
+    if (tenant) { toast(`${tenant.name} added.`); refreshAll(); }
+  }
+  async function setArchived(t, archived, undoable = true) {
+    try {
+      await api(`/tenants/${t.id}`, { method: 'PUT', body: { ...t, archived } });
+      setDetails(null);
+      refreshAll();
+      toast(undoable
+        ? { text: `${t.name} ${archived ? 'moved out' : 'moved back in'}.`, action: 'Undo', onAction: () => setArchived(t, !archived, false) }
+        : `${t.name} ${archived ? 'moved out' : 'moved back in'}.`);
+    } catch (err) {
+      toast({ text: err.message, error: true });
+    }
   }
   async function remove() {
     const t = details.tenant;
@@ -36,7 +73,7 @@ export default function Tenants() {
       setConfirming(false);
       setDetails(null);
       toast(`${t.name} deleted.`);
-      reload();
+      refreshAll();
     } catch (err) {
       setConfirming(false);
       toast({ text: err.message, error: true });
@@ -46,59 +83,139 @@ export default function Tenants() {
   }
 
   if (loadError && !rows) return <LoadError what="your tenants" onRetry={reload} />;
-  const shown = rows?.filter((t) => !!t.archived === archived);
+
+  const now = today();
+  const thisMonth = MONTHS[Number(now.slice(5, 7)) - 1];
+  const owed = Object.fromEntries((balances ?? []).map((b) => [b.id, b]));
+  const behind = (x) => owed[x.id]?.overdueCount ?? 0;
+  const unpaid = (x) => (owed[x.id] && !owed[x.id].paidThisMonth ? 1 : 0);
+  const properties = Object.entries(lookups.properties ?? {});
+  const q = query.trim().toLowerCase();
+  const shown = rows
+    ?.filter((x) => !!x.archived === (tab === 'moved') && (!propertyId || x.propertyId === propertyId) && (!q || x.name.toLowerCase().includes(q)))
+    .sort((a, b) => behind(b) - behind(a) || unpaid(b) - unpaid(a) || a.name.localeCompare(b.name));
+
+  function status(x) {
+    const b = owed[x.id];
+    if (x.archived || !b) return null;
+    if (b.overdueCount) return <span className="owed">{plural(b.overdueCount, 'month')} behind · {money(b.balance)}</span>;
+    if (x.moveInDate?.slice(0, 7) > now.slice(0, 7)) return <span className="muted">Moves in {monthOf(x.moveInDate)}</span>;
+    return b.paidThisMonth ? <span className="paid">Paid for {thisMonth}</span> : <span className="muted">{thisMonth} due</span>;
+  }
+
   const t = details?.tenant;
+  const rent = Number(t?.monthlyRent) || 0;
+  const due = details?.due ?? [];
+  const startsLater = t?.moveInDate?.slice(0, 7) > now.slice(0, 7);
+  const facts = t && [
+    ['Renting at', details.property],
+    ['Monthly rent', rent > 0 && money(rent)],
+    ['Moved in', t.moveInDate && monthOf(t.moveInDate)],
+    ['Emergency contact', [t.emergencyName, t.emergencyPhone].filter(Boolean).join(' · ')],
+    ['Notes', t.notes],
+  ].filter(([, v]) => v);
+  const tel = (p) => p.replace(/[^\d+]/g, '');
 
   return (
     <>
       <div className="toolbar">
-        <label className="toggle"><input type="checkbox" className="switch" checked={archived} onChange={(e) => setArchived(e.target.checked)} /> Show archived tenants</label>
-        <button className="btn sm" onClick={() => download('/export/tenants', 'tenants.csv').catch((err) => toast({ text: err.message, error: true }))}>
-          <Icon d={I.download} />Export CSV
-        </button>
+        <input type="search" aria-label="Search tenants" placeholder="Search tenants" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <button className="btn primary" onClick={() => setAdding(true)}><Icon d={I.plus} />Add tenant</button>
+      </div>
+      <div className="year-nav">
+        <button className={`chip ${tab === 'current' ? 'soft' : ''}`} aria-pressed={tab === 'current'} onClick={() => setTab('current')}>Current</button>
+        <button className={`chip ${tab === 'moved' ? 'soft' : ''}`} aria-pressed={tab === 'moved'} onClick={() => setTab('moved')}>Moved out</button>
+        {properties.length > 1 && (
+          <Select aria-label="Filter by property" title="Property" options={properties} clear="All properties" onChange={setPropertyId} />
+        )}
+        <button className="link" onClick={() => download('/export/tenants', 'tenants.csv').catch((err) => toast({ text: err.message, error: true }))}>Export CSV</button>
       </div>
 
       {!rows && <Loading />}
       {shown?.length === 0 && (
-        archived
-          ? <Empty icon={I.tenants} title="No archived tenants." />
-          : <Empty icon={I.tenants} title="No tenants yet.">Tap Nena at the bottom right, then Add tenant.</Empty>
+        q || propertyId ? <Empty icon={I.tenants} title="No tenants match.">Try a different name or property.</Empty>
+          : tab === 'moved' ? <Empty icon={I.tenants} title="No one has moved out." />
+            : <Empty icon={I.tenants} title="No tenants yet." action={<button className="btn primary sm" onClick={() => setAdding(true)}>Add tenant</button>} />
       )}
-      <div className="cards">
-        {shown?.map((x) => (
-          <article className="card" key={x.id}>
-            <div className="card-top">
-              <h2>{x.name}</h2>
-              <button className="link" onClick={() => inspect(x)}>Inspect details</button>
-            </div>
-            <dl className="facts">
-              <dt>Renting at</dt><dd>{lookups.properties?.[x.propertyId] ?? '—'}</dd>
-              <dt>Monthly rent</dt><dd>{x.monthlyRent != null ? money(x.monthlyRent) : '—'}</dd>
-            </dl>
-          </article>
-        ))}
-      </div>
+      {shown?.length > 0 && (
+        <section className="card">
+          <ul className="list">
+            {shown.map((x) => (
+              <li key={x.id} className="tap">
+                <button className="row-btn" onClick={() => inspect(x)}>
+                  <span className="grow">
+                    <span className="title">{x.name}</span>
+                    <span className="sub">{lookups.properties?.[x.propertyId] ?? '—'}{x.monthlyRent > 0 && ` · ${money(x.monthlyRent)}/mo`}</span>
+                  </span>
+                  <span className="small end">{status(x)}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
-      {details && (
+      {adding && (
+        <Doc title="Add tenant" onClose={() => setAdding(false)}>
+          <RecordForm name="tenants" row={{ propertyId }} onDone={added} />
+        </Doc>
+      )}
+
+      {details && !editing && (
         <Doc title={t.name} onClose={() => setDetails(null)}>
+          <div className="form">
+            {!t.archived && due.length > 0 && (
+              <>
+                {details.overdueMonths.length > 0 && (
+                  <p className="box error"><span><strong>Unpaid months: {details.overdueMonths.join(', ')}</strong><br />Balance owed: {money(details.balance)}</span></p>
+                )}
+                <button className="btn primary block" onClick={() => payMonths(t, due, () => refreshSheet(t.id))}>
+                  {due.length > 1 ? `Pay ${due.length} months` : 'Mark paid'}{rent > 0 && ` · ${money(due.length * rent)}`}
+                </button>
+                {due.length > 1 && (
+                  <button className="btn ghost block" onClick={() => payMonths(t, [due.at(-1)], () => refreshSheet(t.id))}>Just {monthName(due.at(-1))}</button>
+                )}
+              </>
+            )}
+            {!t.archived && due.length === 0 && (startsLater
+              ? <p className="muted small">Rent starts {monthOf(t.moveInDate)}.</p>
+              : <p className="box success"><Icon d={I.check} />Paid up through {thisMonth}.</p>)}
+
+            {(t.phone || t.email) && (
+              <div className="row-actions">
+                {t.phone && <a className="btn" href={`tel:${tel(t.phone)}`}>Call</a>}
+                {t.phone && <a className="btn" href={`sms:${tel(t.phone)}`}>Text</a>}
+                {t.email && <a className="btn" href={`mailto:${t.email}`}>Email</a>}
+              </div>
+            )}
+
+            <dl className="facts">{facts.map(([k, v]) => <div key={k} style={{ display: 'contents' }}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
+
+            <h3>Payment history</h3>
+            {details.payments.length
+              ? <Table columns={[col('Month', 'month'), mcol('Amount', 'amount'), { label: 'Marked paid on', num: true, get: (p) => p.paidAt }]} rows={details.payments} />
+              : <p className="muted small">No payments marked yet.</p>}
+
+            <div className="form-actions">
+              <button className="btn" onClick={() => setEditing(true)}>Edit</button>
+              <button className="btn" onClick={() => setArchived(t, !t.archived)}>{t.archived ? 'Move back in' : 'Move out'}</button>
+            </div>
+          </div>
+        </Doc>
+      )}
+
+      {details && editing && (
+        <Doc title={`Edit ${t.name}`} onClose={() => setEditing(false)}>
           <RecordForm
             name="tenants"
             row={t}
             onDone={saved}
-            before={details.overdueMonths.length > 0 && (
-              <p className="box error"><span><strong>Unpaid months: {details.overdueMonths.join(', ')}</strong><br />Balance owed: {money(details.balance)}</span></p>
-            )}
             after={
-              <>
-                <h3>Payment history</h3>
-                {details.payments.length
-                  ? <Table columns={[col('Month', 'month'), mcol('Amount', 'amount'), { label: 'Marked paid on', num: true, get: (p) => p.paidAt }]} rows={details.payments} />
-                  : <p className="muted small">No payments marked yet.</p>}
-                <div className="danger-zone">
-                  <h3>Danger zone</h3>
-                  <button type="button" className="btn danger" onClick={() => setConfirming(true)}>Delete tenant</button>
-                </div>
-              </>
+              <div className="danger-zone">
+                <h3>Danger zone</h3>
+                <p>Moved out? Use Move out on their sheet to keep their history. Deleting removes it for good.</p>
+                <button type="button" className="btn danger" onClick={() => setConfirming(true)}>Delete tenant</button>
+              </div>
             }
           />
         </Doc>
@@ -106,7 +223,7 @@ export default function Tenants() {
       {confirming && (
         <Confirm
           title={`Delete ${t.name}?`}
-          body={`Their ${details.payments.length} payment record${details.payments.length === 1 ? '' : 's'} go too, and this can't be undone. If they just moved out, tick "Archived" instead to keep their history.`}
+          body={`Their ${plural(details.payments.length, 'payment record')} go too, and this can't be undone. If they just moved out, use Move out instead to keep their history.`}
           confirmLabel={`Delete ${t.name}`}
           cancelLabel="Keep tenant"
           busy={deleting}

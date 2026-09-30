@@ -4,6 +4,7 @@ import { today } from './api.js';
 // Properties rented per bed/person, so we track total capacity.
 const SHARED = ['Boarding house', 'Dormitory'];
 
+// more: true fields sit under "More details" in the form. Moving a tenant out is a button on their sheet, not a field.
 export const resources = {
   properties: {
     singular: 'property',
@@ -20,12 +21,11 @@ export const resources = {
       { key: 'propertyId', label: 'Renting at', ref: 'properties', required: true, hint: 'Not listed? Add the property first.' },
       { key: 'monthlyRent', label: 'Monthly rent', money: true, placeholder: 'e.g. 3500' },
       { key: 'moveInDate', label: 'Move-in date', type: 'date', default: today, hint: 'Rent is due from this month' },
-      { key: 'phone', label: 'Phone', type: 'tel' },
-      { key: 'email', label: 'Email', type: 'email' },
-      { key: 'emergencyName', label: 'Emergency contact' },
-      { key: 'emergencyPhone', label: 'Emergency phone', type: 'tel' },
-      { key: 'notes', label: 'Notes', type: 'textarea' },
-      { key: 'archived', label: 'Archived (moved out)', type: 'checkbox' },
+      { more: true, key: 'phone', label: 'Phone', type: 'tel' },
+      { more: true, key: 'email', label: 'Email', type: 'email' },
+      { more: true, key: 'emergencyName', label: 'Emergency contact' },
+      { more: true, key: 'emergencyPhone', label: 'Emergency phone', type: 'tel' },
+      { more: true, key: 'notes', label: 'Notes', type: 'textarea' },
     ],
   },
 };
