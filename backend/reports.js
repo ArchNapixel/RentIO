@@ -32,6 +32,14 @@ export function overdueMonths(tenant, paid, on = today()) {
   return out;
 }
 
+// Everything to collect right now: unpaid months up to and including the current one.
+export function dueMonths(tenant, paid, on = today()) {
+  const out = overdueMonths(tenant, paid, on);
+  const now = fromIndex(monthIndex(on));
+  if (startIndex(tenant) <= monthIndex(on) && !paid.has(`${tenant.id}:${now.year}:${now.month}`)) out.push(now);
+  return out;
+}
+
 // One row per current tenant with payment status; shared by the dashboard, alerts, CSV and the assistant.
 export function tenantRows(db, on = today()) {
   const paid = paidKeys(db), names = Object.fromEntries(db.properties.map((p) => [p.id, p.name]));
@@ -152,6 +160,7 @@ export function rentGrid(db, year, on = today()) {
         .map((t) => ({
           id: t.id, name: t.name, monthlyRent: Number(t.monthlyRent) || 0, startMonth: startIndex(t),
           monthsBehind: overdueMonths(t, paid, on).length,
+          due: dueMonths(t, paid, on),
           paid: db.rentPayments.filter((r) => r.tenantId === t.id && r.year === year).map((r) => r.month).sort((a, b) => a - b),
         })),
     })),

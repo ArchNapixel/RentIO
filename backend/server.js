@@ -66,6 +66,18 @@ app.put('/api/rent/:tenantId/:year/:month', async (req, res) => {
   res.json({ tenantId: tenant.id, year, month, paid: req.body.paid });
 });
 
+// Catch a tenant up: mark several months paid (or unpaid, for Undo) in one request.
+app.put('/api/rent/:tenantId', async (req, res) => {
+  const { months, paid } = req.body ?? {};
+  if (typeof paid !== 'boolean') throw bad('paid must be true or false');
+  if (!Array.isArray(months) || !months.length || months.length > 24) throw bad('Give between 1 and 24 months');
+  if (!months.every((m) => Number.isInteger(m?.year) && m.year >= 2000 && m.year <= 2100 && Number.isInteger(m.month) && m.month >= 1 && m.month <= 12)) throw bad('Invalid month');
+  const tenant = await store.get(req.owner, 'tenants', req.params.tenantId);
+  if (!tenant) throw bad('Tenant not found', 404);
+  await store.setPaidMany(req.owner, tenant.id, months, paid, Number(tenant.monthlyRent) || 0);
+  res.json({ tenantId: tenant.id, months, paid });
+});
+
 // Nena. ponytail: one global rate limit per server process; per-owner limits if one account starts hogging it.
 const aiHits = [];
 app.use('/api/ai', (req, res, next) => {

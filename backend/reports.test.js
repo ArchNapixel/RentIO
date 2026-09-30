@@ -29,6 +29,13 @@ test('rent grid lists paid months per tenant under their property', () => {
   assert.deepEqual(grid.properties[0].tenants[0].paid, [6, 8]);
 });
 
+test('rent grid lists every unpaid month to collect, including the current one', () => {
+  const due = (on) => rentGrid(db, 2026, on).properties[0].tenants[0].due;
+  assert.deepEqual(due('2026-09-10'), [{ year: 2026, month: 7 }, { year: 2026, month: 9 }]);
+  assert.deepEqual(due('2026-08-10'), [{ year: 2026, month: 7 }]); // Aug is paid, Jul still owed
+  assert.deepEqual(due('2026-05-10'), []); // hasn't moved in yet
+});
+
 test('overdue digest lists late tenants, and is empty when nobody is late', () => {
   assert.match(overdueDigest(db, '2026-09-28').text, /Juan \(Casa Luna\): Jul 2026, ₱3,000/);
   assert.equal(overdueDigest(db, '2026-07-10'), null);

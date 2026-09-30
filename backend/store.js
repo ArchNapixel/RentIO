@@ -77,10 +77,14 @@ export const recentActions = async (owner, limit) =>
   (await run(sb.from('nena_actions').select('*').eq('owner_id', owner).order('created_at', { ascending: false }).limit(limit))).map(fromRow);
 
 // Callers must check the tenant belongs to this owner first (store.get).
-export async function setPaid(owner, tenantId, year, month, paid, amount) {
+export const setPaid = (owner, tenantId, year, month, paid, amount) => setPaidMany(owner, tenantId, [{ year, month }], paid, amount);
+
+// One upsert for any number of months (catching a tenant up); unticking deletes each month.
+export async function setPaidMany(owner, tenantId, months, paid, amount) {
   if (paid) {
-    await run(sb.from('rent_payments').upsert(toRow({ ownerId: owner, tenantId, year, month, amount, paidAt: new Date().toISOString() })));
+    const paidAt = new Date().toISOString();
+    await run(sb.from('rent_payments').upsert(months.map(({ year, month }) => toRow({ ownerId: owner, tenantId, year, month, amount, paidAt }))));
   } else {
-    await run(sb.from('rent_payments').delete().match({ owner_id: owner, tenant_id: tenantId, year, month }));
+    await Promise.all(months.map(({ year, month }) => run(sb.from('rent_payments').delete().match({ owner_id: owner, tenant_id: tenantId, year, month }))));
   }
 }

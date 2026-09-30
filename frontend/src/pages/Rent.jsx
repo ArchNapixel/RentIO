@@ -1,4 +1,5 @@
-// Rent tracker: one card per property, tenants down the side, Jan–Dec across, a checkbox per month.
+// Rent tracker. "Due now" (default): who still owes, one tap to mark them paid (or catch up every owed month).
+// "Full year": one card per property, tenants down the side, Jan–Dec across, a checkbox per month.
 import { useEffect, useRef, useState } from 'react';
 import { api, clearHashParams, hashParam, money, today, useApi } from '../api.js';
 import { I, Icon } from '../components/Icons.jsx';
@@ -12,6 +13,8 @@ export default function Rent() {
   const nowIndex = thisYear * 12 + Number(today().slice(5, 7)) - 1;
   const [year, setYear] = useState(thisYear);
   const [grid, reload, error] = useApi(`/rent?year=${year}`);
+  const [view, setView] = useState('due');
+  const [paying, setPaying] = useState({}); // tenantId -> true while a Due-now payment saves (row is hidden optimistically)
   const [ticks, setTicks] = useState({}); // "tenantId:month" -> value shown while saving (optimistic)
   const linked = useRef(hashParam('property')); // "#payments?property=…" (from Nena) scrolls to it
 
@@ -37,23 +40,101 @@ export default function Rent() {
     }
   }
 
+  // Marks months paid in one request, then offers a single Undo for the whole batch.
+  async function pay(tenant, months, undoable = true) {
+    setPaying((s) => ({ ...s, [tenant.id]: true }));
+    try {
+      await api(`/rent/${tenant.id}`, { method: 'PUT', body: { months, paid: true } });
+      await reload();
+      if (undoable) toast({ text: `${tenant.name} · ${months.length === 1 ? monthName(months[0]) : `${months.length} months`} paid`, action: 'Undo', onAction: () => unpay(tenant, months) });
+    } catch {
+      toast({ text: `Couldn't save ${tenant.name}'s payment.`, action: 'Try again', onAction: () => pay(tenant, months, undoable), error: true });
+    } finally {
+      setPaying(({ [tenant.id]: _, ...rest }) => rest);
+    }
+  }
+
+  async function unpay(tenant, months) {
+    try {
+      await api(`/rent/${tenant.id}`, { method: 'PUT', body: { months, paid: false } });
+      await reload();
+    } catch {
+      toast({ text: `Couldn't undo ${tenant.name}'s payment.`, action: 'Try again', onAction: () => unpay(tenant, months), error: true });
+    }
+  }
+
+  const monthName = ({ year: y, month }) => `${MONTHS[month - 1]}${y === thisYear ? '' : ` ${y}`}`;
+
   if (error && !grid) return <LoadError what="the rent tracker" onRetry={reload} />;
+
+  const noProperties = grid?.properties.length === 0;
+  const dueGroups = (grid?.properties ?? [])
+    .map((p) => ({ ...p, tenants: p.tenants.filter((t) => t.due.length && !paying[t.id]) }))
+    .filter((p) => p.tenants.length);
+  const anyTenants = grid?.properties.some((p) => p.tenants.length);
+  const dueCount = dueGroups.reduce((n, p) => n + p.tenants.length, 0);
+  const dueTotal = dueGroups.reduce((sum, p) => sum + p.tenants.reduce((s, t) => s + t.due.length * t.monthlyRent, 0), 0);
 
   return (
     <div>
       <div className="year-nav">
-        <button className="btn" aria-label="Previous year" onClick={() => setYear(year - 1)}><Icon d={I.left} /></button>
-        <strong aria-live="polite">{year}</strong>
-        <button className="btn" aria-label="Next year" onClick={() => setYear(year + 1)}><Icon d={I.right} /></button>
-        <button className="chip soft" onClick={() => setYear(thisYear)} disabled={year === thisYear}>This year</button>
+        <button className={`chip ${view === 'due' ? 'soft' : ''}`} aria-pressed={view === 'due'} onClick={() => setView('due')}>Due now</button>
+        <button className={`chip ${view === 'year' ? 'soft' : ''}`} aria-pressed={view === 'year'} onClick={() => setView('year')}>Full year</button>
       </div>
+      {view === 'year' && (
+        <div className="year-nav">
+          <button className="btn" aria-label="Previous year" onClick={() => setYear(year - 1)}><Icon d={I.left} /></button>
+          <strong aria-live="polite">{year}</strong>
+          <button className="btn" aria-label="Next year" onClick={() => setYear(year + 1)}><Icon d={I.right} /></button>
+          <button className="chip soft" onClick={() => setYear(thisYear)} disabled={year === thisYear}>This year</button>
+        </div>
+      )}
       {!grid && <Loading rows={2} />}
-      {grid?.properties.length === 0 && (
+      {noProperties && (
         <Empty title="No properties yet." action={<a className="btn primary sm" href="#properties">Go to Properties</a>}>
           Add a property, then add tenants from Nena's menu. Their months show up here.
         </Empty>
       )}
-      {grid?.properties.map((p) => (
+      {view === 'due' && grid && !noProperties && (
+        !anyTenants ? (
+          <Empty icon={I.userPlus} title="No tenants yet.">Add one from Nena's menu and they'll show up here.</Empty>
+        ) : !dueCount ? (
+          <Empty icon={I.check} title="All paid up.">Everyone has paid through {MONTHS[nowIndex % 12]}.</Empty>
+        ) : (
+          <>
+            <p className="muted small">{dueCount} tenant{dueCount === 1 ? '' : 's'} to collect from{dueTotal > 0 && ` · ${money(dueTotal)}`}</p>
+            {dueGroups.map((p) => (
+              <section className="card grid-card" key={p.id} id={`property-${p.id}`}>
+                <header><h2>{p.name}</h2></header>
+                <ul className="list">
+                  {p.tenants.map((t) => {
+                    const latest = t.due[t.due.length - 1];
+                    const many = t.due.length > 1;
+                    return (
+                      <li key={t.id} className="due-row">
+                        <span className="grow">
+                          <span className="title">{t.name}</span>
+                          <span className="sub">
+                            {t.monthlyRent > 0 && `${money(t.monthlyRent)}/mo`}
+                            {t.monthsBehind > 0 && <span className="owed">{t.monthlyRent > 0 && ' · '}{t.monthsBehind} month{t.monthsBehind > 1 ? 's' : ''} behind</span>}
+                          </span>
+                        </span>
+                        <span className="pay-actions">
+                          <button className="btn primary" onClick={() => pay(t, t.due)}>
+                            {many ? `Pay ${t.due.length} months` : 'Mark paid'}{t.monthlyRent > 0 && ` · ${money(t.due.length * t.monthlyRent)}`}
+                          </button>
+                          {many && <button className="btn ghost sm" onClick={() => pay(t, [latest])}>Just {monthName(latest)}</button>}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            ))}
+          </>
+        )
+      )}
+      {view === 'year' && grid?.properties.map((p) => (
         <section className="card grid-card" key={p.id} id={`property-${p.id}`}>
           <header>
             <h2>{p.name}</h2>
