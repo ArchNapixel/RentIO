@@ -50,9 +50,9 @@ export function Logo({ size = 32 }) {
       <svg viewBox="0 0 24 24">
         <circle cx="12" cy="2.6" r="1.6" fill="#fff" />
         <path d="M12 4.8 20 11v9.2a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V11z" fill="#fff" />
-        <circle cx="9.6" cy="14" r="1.25" fill="var(--nena)" />
-        <circle cx="14.4" cy="14" r="1.25" fill="var(--nena)" />
-        {size >= 32 && <path d="M9.8 17.2q2.2 1.8 4.4 0" stroke="var(--nena)" strokeWidth="1.3" fill="none" strokeLinecap="round" />}
+        <circle cx="9.6" cy="14" r="1.25" fill="var(--brand)" />
+        <circle cx="14.4" cy="14" r="1.25" fill="var(--brand)" />
+        {size >= 32 && <path d="M9.8 17.2q2.2 1.8 4.4 0" stroke="var(--brand)" strokeWidth="1.3" fill="none" strokeLinecap="round" />}
       </svg>
     </span>
   );

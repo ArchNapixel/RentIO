@@ -1,4 +1,5 @@
 import { createRoot } from 'react-dom/client';
+import '@fontsource-variable/inter';
 import './styles.css';
 
 const root = createRoot(document.getElementById('root'));

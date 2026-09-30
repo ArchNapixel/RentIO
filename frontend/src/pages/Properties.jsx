@@ -3,19 +3,21 @@ import { api, clearHashParams, hashParam, useApi } from '../api.js';
 import { RecordForm } from '../components/Crud.jsx';
 import Doc, { Confirm } from '../components/Doc.jsx';
 import { I, Icon } from '../components/Icons.jsx';
-import { Empty, LoadError, Loading } from '../components/States.jsx';
+import { Empty, HeadAction, LoadError, Loading } from '../components/States.jsx';
 import { toast } from '../components/Toasts.jsx';
 
-export default function Properties() {
+export default function Properties({ slot }) {
   const [rows, reload, loadError] = useApi('/properties');
   const [tenants] = useApi('/tenants'); // to tell up front when a property can't be deleted
   const [editing, setEditing] = useState(null); // {} = adding, property = inspecting
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const linked = useRef(hashParam('id')); // "#properties?id=…" (from Nena) opens that property
+  const wantsAdd = useRef(hashParam('add')); // "#properties?add=1" (from an empty state) opens the Add sheet
 
   useEffect(() => {
     clearHashParams();
+    if (wantsAdd.current) { wantsAdd.current = null; setEditing({}); }
     const p = rows?.find((x) => x.id === linked.current);
     if (p) { linked.current = null; setEditing(p); }
   }, [rows]);
@@ -47,8 +49,7 @@ export default function Properties() {
 
   return (
     <>
-      <button className="btn primary block" onClick={() => setEditing({})}><Icon d={I.plus} />Add property</button>
-      <div style={{ height: 12 }} />
+      <HeadAction slot={slot}><button className="btn primary" onClick={() => setEditing({})}><Icon d={I.plus} />Add property</button></HeadAction>
       {!rows && <Loading rows={2} />}
       {rows?.length === 0 && <Empty title="No properties yet.">Add your first boarding house, dorm, apartment, condo or house.</Empty>}
       {rows?.length > 0 && (

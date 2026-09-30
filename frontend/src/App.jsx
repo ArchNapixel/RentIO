@@ -7,7 +7,6 @@ import Dashboard from './pages/Dashboard.jsx';
 import Properties from './pages/Properties.jsx';
 import Tenants from './pages/Tenants.jsx';
 import Rent from './pages/Rent.jsx';
-import Alerts, { useAlertNotifier } from './pages/Alerts.jsx';
 import Account from './components/Account.jsx';
 import { closeTopLayer } from './components/Doc.jsx';
 import QuickActions from './components/QuickActions.jsx';
@@ -16,18 +15,19 @@ import { Wordmark } from './components/Robot.jsx';
 import { OfflineBanner, useOnline } from './components/States.jsx';
 import Toasts from './components/Toasts.jsx';
 import ThemeToggle from './components/ThemeToggle.jsx';
+import { useAlertNotifier } from './notify.js';
 
 // key: [page title, component, nav label, icon]
 const pages = {
   dashboard: ['Home', Dashboard, 'Home', I.home],
-  payments: ['Rent tracker', Rent, 'Rent', I.rent],
+  payments: ['Rent', Rent, 'Rent', I.rent],
   tenants: ['Tenants', Tenants, 'Tenants', I.tenants],
   properties: ['Properties', Properties, 'Properties', I.properties],
-  alerts: ['Alerts', Alerts, 'Alerts', I.alerts],
 };
 // "#tenants?id=…" → route "tenants"; pages read the ?params themselves.
 const current = () => {
   const path = location.hash.slice(1).split('?')[0];
+  if (path === 'alerts') return 'payments'; // overdue rent lives on the Rent tab now
   return pages[path] ? path : 'dashboard';
 };
 
@@ -57,6 +57,7 @@ export default function App() {
 
 function Shell({ guest = false, onSignUp, email }) {
   const [account, setAccount] = useState(false);
+  const [slot, setSlot] = useState(null); // header spot where a page puts its Add button
   const [route, setRoute] = useState(guest ? 'dashboard' : current);
   const [hash, setHash] = useState(location.hash);
   const [version, setVersion] = useState(0); // bumped when data changes outside the page (quick add, Nena)
@@ -86,30 +87,31 @@ function Shell({ guest = false, onSignUp, email }) {
         <nav className="nav" aria-label="Main">
           <a className="brand" href="#dashboard" aria-label="RentIO home"><Wordmark /></a>
           {Object.entries(pages).map(([key, [, , label, icon]]) => (
-            <a key={key} href={`#${key}`} aria-current={key === route ? 'page' : undefined} aria-label={key === 'alerts' && alertCount ? `Alerts, ${alertCount} open` : undefined}>
+            <a key={key} href={`#${key}`} aria-current={key === route ? 'page' : undefined} aria-label={key === 'payments' && alertCount ? `Rent, ${alertCount} overdue` : undefined}>
               <span className="nav-icon" aria-hidden="true">
                 <Icon d={icon} />
-                {key === 'alerts' && alertCount > 0 && <span className="badge">{badge}</span>}
+                {key === 'payments' && alertCount > 0 && <span className="badge">{badge}</span>}
               </span>
               <span className="nav-label">{label}</span>
               <span className="nav-short">{label}</span>
-              {key === 'alerts' && alertCount > 0 && <span className="badge nav-count" aria-hidden="true">{badge}</span>}
+              {key === 'payments' && alertCount > 0 && <span className="badge nav-count" aria-hidden="true">{badge}</span>}
             </a>
           ))}
+          <button className="nav-account" onClick={() => setAccount(true)}><span className="nav-icon" aria-hidden="true"><Icon d={I.user} /></span>Account</button>
         </nav>
       )}
-      <main>
+      <main className={route === 'dashboard' ? undefined : 'narrow'}>
         <header className="page-head">
           <h1>{title}</h1>
           <span className="row-actions">
-            <ThemeToggle />
+            <span className="head-slot" ref={setSlot} />
             {guest
-              ? <button className="btn primary sm" onClick={onSignUp}>Sign up</button>
-              : <button className="icon-btn" aria-label="Account" title="Account" onClick={() => setAccount(true)}><Icon d={I.user} /></button>}
+              ? <><ThemeToggle /><button className="btn primary sm" onClick={onSignUp}>Sign up</button></>
+              : <button className="icon-btn head-account" aria-label="Account" title="Account" onClick={() => setAccount(true)}><Icon d={I.user} /></button>}
           </span>
         </header>
         {!online && <OfflineBanner />}
-        <Page key={`${hash}:${version}`} guest={guest} />
+        <Page key={`${hash}:${version}`} guest={guest} slot={slot} />
       </main>
       {account && <Account email={email} onClose={() => setAccount(false)} />}
       <Toasts />

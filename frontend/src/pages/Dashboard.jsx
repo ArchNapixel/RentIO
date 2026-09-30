@@ -1,8 +1,9 @@
 import { money, useApi } from '../api.js';
 import { I, Icon } from '../components/Icons.jsx';
-import { Empty, LoadError, Loading } from '../components/States.jsx';
+import { Empty, LoadError, Loading, Status } from '../components/States.jsx';
 import { Stat } from '../components/Table.jsx';
 
+const compact = (n) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', notation: 'compact', maximumFractionDigits: 1 }).format(n);
 const monthShort = (ym) => new Date(`${ym}-01T00:00`).toLocaleString('en-PH', { month: 'short' });
 
 // Rent collected per month since the first payment (up to 12). Hidden until the first payment.
@@ -20,6 +21,7 @@ function Collected({ monthly }) {
         <div className="bars" role="img" aria-label={months.map((m) => `${monthShort(m.month)} ${money(m.income)}`).join(', ')}>
           {months.map((m, i) => (
             <span key={m.month} className={`bar ${i === months.length - 1 ? 'now' : ''}`}>
+              {i === months.length - 1 && <em style={{ bottom: `calc(18px + (100% - 18px) * ${m.income / top} + 2px)` }}>{compact(m.income)}</em>}
               <i style={{ height: `max(4px, calc((100% - 18px) * ${m.income / top}))` }} />
               <small>{monthShort(m.month)}</small>
             </span>
@@ -33,14 +35,13 @@ function Collected({ monthly }) {
 
 export default function Dashboard({ guest }) {
   const [d, reload, error] = useApi(guest ? '/demo/dashboard' : '/reports/dashboard');
-  const MONTH = new Date().toLocaleString('en-PH', { month: 'long' }); // read on every render, so it's right after midnight too
-  const MON = new Date().toLocaleString('en-PH', { month: 'short' });
+  const MON = new Date().toLocaleString('en-PH', { month: 'short' }); // read on every render, so it's right after midnight too
   if (error && !d) return <LoadError what="your summary" onRetry={reload} />;
   if (!d) return <Loading />;
   if (d.properties === 0) {
     return (
-      <Empty title="No properties yet." action={<a className="btn primary sm" href="#properties">Go to Properties</a>}>
-        Add one under Properties. Your rent summary shows up here once you have tenants.
+      <Empty title="No properties yet." action={<a className="btn primary sm" href="#properties?add=1">Add property</a>}>
+        Your rent summary shows up here once you have tenants.
       </Empty>
     );
   }
@@ -50,17 +51,19 @@ export default function Dashboard({ guest }) {
       {guest && <p className="box info demo-note"><Icon d={I.alert} />You're looking at sample data. Sign up to add your own properties and tenants.</p>}
       <div className="stats">
         <Stat wide label="Collected this month" value={money(d.collectedThisMonth)} of={money(d.expectedThisMonth)} progress={d.expectedThisMonth ? d.collectedThisMonth / d.expectedThisMonth : 0} note={`${money(d.collectedLast12Months)} in the last 12 months`} />
-        <Stat label={`Paid for ${MONTH}`} value={d.paidThisMonth} of={d.dueTenants} />
-        <Stat label="Overdue" value={<span className={d.overdue ? 'owed' : ''}>{money(d.overdue)}</span>} note={d.overdueTenants.length ? `${d.overdueTenants.length} tenant${d.overdueTenants.length > 1 ? 's' : ''} behind` : 'Everyone is up to date'} />
+        <Stat href={d.overdue ? '#payments' : undefined} label="Overdue" value={<span className={d.overdue ? 'owed' : ''}>{money(d.overdue)}</span>} note={d.overdueTenants.length ? `${d.overdueTenants.length} tenant${d.overdueTenants.length > 1 ? 's' : ''} behind` : 'Everyone is up to date'} />
         {d.capacity > 0 && <Stat label="Beds occupied" value={d.occupiedBeds} of={d.capacity} />}
       </div>
       <Collected monthly={d.monthly} />
       <h2 className="section-label">Properties</h2>
       <ul className="card list">
         {d.perProperty.map((p) => (
-          <li key={p.id}>
+          <li key={p.id} className="tap">
+            <a className="row-btn" href={`#payments?property=${p.id}`}>
             <span className="grow"><span className="title">{p.name}</span><span className="sub">{p.type}</span></span>
-            <span className="end"><strong>{p.paidThisMonth} of {p.dueTenants}</strong><span className="sub">paid for {MON}</span></span>
+            <span className="end small"><Status kind={p.dueTenants > 0 && p.paidThisMonth >= p.dueTenants ? 'paid' : p.dueTenants > 0 ? 'due' : 'idle'}>{p.paidThisMonth} of {p.dueTenants} paid for {MON}</Status></span>
+            <Icon d={I.right} />
+            </a>
           </li>
         ))}
       </ul>

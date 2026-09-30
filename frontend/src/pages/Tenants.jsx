@@ -1,12 +1,12 @@
 // Tenants: a searchable list (who owes first), a read-only sheet per tenant with a one-tap pay button,
 // and an Edit step behind it. Moving out is a button; deleting lives at the bottom of Edit.
 import { useEffect, useState } from 'react';
-import { api, clearHashParams, download, hashParam, money, today, useApi, useLookups } from '../api.js';
+import { api, clearHashParams, hashParam, money, today, useApi, useLookups } from '../api.js';
 import { RecordForm } from '../components/Crud.jsx';
 import Doc, { Confirm } from '../components/Doc.jsx';
 import { I, Icon } from '../components/Icons.jsx';
 import { Select } from '../components/Picker.jsx';
-import { Empty, LoadError, Loading } from '../components/States.jsx';
+import { Empty, HeadAction, LoadError, Loading, Status } from '../components/States.jsx';
 import Table, { col, mcol } from '../components/Table.jsx';
 import { toast } from '../components/Toasts.jsx';
 import { MONTHS, monthName, payMonths, tel } from '../pay.js';
@@ -14,7 +14,7 @@ import { MONTHS, monthName, payMonths, tel } from '../pay.js';
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const monthOf = (iso) => `${MONTHS[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`;
 
-export default function Tenants() {
+export default function Tenants({ slot }) {
   const [rows, reload, loadError] = useApi('/tenants');
   const [balances, reloadBalances] = useApi('/reports/tenant-balances'); // current tenants only
   const [lookups] = useLookups();
@@ -29,8 +29,10 @@ export default function Tenants() {
 
   useEffect(() => { // "#tenants?id=…" (from Nena) opens that tenant's sheet
     const id = hashParam('id');
+    const add = hashParam('add'); // "#tenants?add=1" (from an empty state) opens the Add sheet
     clearHashParams();
     if (id) inspect({ id });
+    if (add) setAdding(true);
   }, []);
 
   const summaryPath = (id) => `/tenants/${id}/summary`;
@@ -98,9 +100,9 @@ export default function Tenants() {
   function status(x) {
     const b = owed[x.id];
     if (x.archived || !b) return null;
-    if (b.overdueCount) return <span className="owed">{plural(b.overdueCount, 'month')} behind · {money(b.balance)}</span>;
-    if (x.moveInDate?.slice(0, 7) > now.slice(0, 7)) return <span className="muted">Moves in {monthOf(x.moveInDate)}</span>;
-    return b.paidThisMonth ? <span className="paid">Paid for {thisMonth}</span> : <span className="muted">{thisMonth} due</span>;
+    if (b.overdueCount) return <Status kind="behind">{plural(b.overdueCount, 'month')} behind · {money(b.balance)}</Status>;
+    if (x.moveInDate?.slice(0, 7) > now.slice(0, 7)) return <Status>Moves in {monthOf(x.moveInDate)}</Status>;
+    return b.paidThisMonth ? <Status kind="paid">Paid for {thisMonth}</Status> : <Status kind="due">{thisMonth} due</Status>;
   }
 
   const t = details?.tenant;
@@ -119,15 +121,14 @@ export default function Tenants() {
     <>
       <div className="toolbar">
         <input type="search" aria-label="Search tenants" placeholder="Search tenants" value={query} onChange={(e) => setQuery(e.target.value)} />
-        <button className="btn primary" onClick={() => setAdding(true)}><Icon d={I.plus} />Add tenant</button>
       </div>
+      <HeadAction slot={slot}><button className="btn primary" onClick={() => setAdding(true)}><Icon d={I.plus} />Add tenant</button></HeadAction>
       <div className="year-nav">
         <button className={`chip ${tab === 'current' ? 'soft' : ''}`} aria-pressed={tab === 'current'} onClick={() => setTab('current')}>Current</button>
         <button className={`chip ${tab === 'moved' ? 'soft' : ''}`} aria-pressed={tab === 'moved'} onClick={() => setTab('moved')}>Moved out</button>
         {properties.length > 1 && (
           <Select aria-label="Filter by property" title="Property" options={properties} clear="All properties" onChange={setPropertyId} />
         )}
-        <button className="link" onClick={() => download('/export/tenants', 'tenants.csv').catch((err) => toast({ text: err.message, error: true }))}>Export CSV</button>
       </div>
 
       {!rows && <Loading />}
@@ -137,7 +138,19 @@ export default function Tenants() {
             : <Empty icon={I.tenants} title="No tenants yet." action={<button className="btn primary sm" onClick={() => setAdding(true)}>Add tenant</button>} />
       )}
       {shown?.length > 0 && (
-        <section className="card">
+        <>
+        <section className="card only-wide">
+          <Table
+            columns={[
+              { label: 'Name', get: (x) => <button className="link plain" onClick={() => inspect(x)}>{x.name}</button> },
+              { label: 'Property', get: (x) => lookups.properties?.[x.propertyId] ?? '—' },
+              mcol('Rent', 'monthlyRent'),
+              { label: 'Status', get: status },
+            ]}
+            rows={shown}
+          />
+        </section>
+        <section className="card only-narrow">
           <ul className="list">
             {shown.map((x) => (
               <li key={x.id} className="tap">
@@ -147,11 +160,13 @@ export default function Tenants() {
                     <span className="sub">{lookups.properties?.[x.propertyId] ?? '—'}{x.monthlyRent > 0 && ` · ${money(x.monthlyRent)}/mo`}</span>
                   </span>
                   <span className="small end">{status(x)}</span>
+                  <Icon d={I.right} />
                 </button>
               </li>
             ))}
           </ul>
         </section>
+        </>
       )}
 
       {adding && (
@@ -169,10 +184,10 @@ export default function Tenants() {
                   <p className="box error"><span><strong>Unpaid months: {details.overdueMonths.join(', ')}</strong><br />Balance owed: {money(details.balance)}</span></p>
                 )}
                 <button className="btn primary block" onClick={() => payMonths(t, due, () => refreshSheet(t.id))}>
-                  {due.length > 1 ? `Pay ${due.length} months` : 'Mark paid'}{rent > 0 && ` · ${money(due.length * rent)}`}
+                  {due.length > 1 ? `Mark ${due.length} months paid` : 'Mark paid'}{rent > 0 && ` · ${money(due.length * rent)}`}
                 </button>
                 {due.length > 1 && (
-                  <button className="btn ghost block" onClick={() => payMonths(t, [due.at(-1)], () => refreshSheet(t.id))}>Just {monthName(due.at(-1))}</button>
+                  <button className="btn ghost block" onClick={() => payMonths(t, [due.at(-1)], () => refreshSheet(t.id))}>Only {monthName(due.at(-1))}</button>
                 )}
               </>
             )}
@@ -188,7 +203,7 @@ export default function Tenants() {
               </div>
             )}
 
-            <dl className="facts">{facts.map(([k, v]) => <div key={k} style={{ display: 'contents' }}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
+            <dl className="facts">{facts.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
 
             <h3>Payment history</h3>
             {details.payments.length

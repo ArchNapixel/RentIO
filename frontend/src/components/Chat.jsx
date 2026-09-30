@@ -117,7 +117,7 @@ export default function Chat({ greeting, active, onClose, onNavigate, onChanged 
       <header className="chat-head">
         <span className="avatar"><Robot expression={mood} /></span>
         <span className="chat-title"><strong>Nena</strong><small>RentIO assistant</small></span>
-        <button className="btn ghost sm" onClick={onClose}>Close</button>
+        <button className="icon-btn" aria-label="Close" onClick={onClose}><Icon d={I.x} /></button>
       </header>
       <div className="chat">
         <div className="chat-log" aria-live="polite">

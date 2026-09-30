@@ -24,9 +24,10 @@ export default function Table({ columns, rows }) {
 }
 
 // "Collected this month · ₱12,500.00 of ₱28,000.00", with an optional progress bar.
-export function Stat({ label, value, of, note, progress, wide }) {
+export function Stat({ label, value, of, note, progress, wide, href }) {
+  const Tag = href ? 'a' : 'div';
   return (
-    <div className={`card stat ${wide ? 'wide' : ''}`}>
+    <Tag className={`card stat ${wide ? 'wide' : ''}`} href={href}>
       <span className="label">{label}</span>
       <span className="value">{value}{of != null && <small>of {of}</small>}</span>
       {progress != null && (
@@ -35,6 +36,6 @@ export function Stat({ label, value, of, note, progress, wide }) {
         </div>
       )}
       {note && <span className="note">{note}</span>}
-    </div>
+    </Tag>
   );
 }

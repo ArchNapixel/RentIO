@@ -5,6 +5,9 @@ import { Logo } from '../components/Robot.jsx';
 import ThemeToggle from '../components/ThemeToggle.jsx';
 import { signInWithGoogle, supabase, webRedirect } from '../supabase.js';
 
+// Google sign-in is switched off until it's set up in Supabase (Authentication › Providers). Flip this to bring the button back.
+const GOOGLE_LOGIN = false;
+
 const TITLES = { signin: 'Welcome back', signup: 'Create your account', forgot: 'Reset your password', reset: 'Choose a new password' };
 const BUTTONS = { signin: 'Sign in', signup: 'Create account', forgot: 'Send reset link', reset: 'Save new password' };
 
@@ -49,7 +52,8 @@ export default function Login({ initialMode = 'signin', onGuest, onPasswordSaved
     if (mode === 'reset') supabase.auth.getUser().then(({ data }) => setResetEmail(data.user?.email ?? ''));
   }, []);
 
-  const go = (next) => { setMode(next); setError(''); setNotice(null); };
+  // Switching screens starts with empty fields, except Sign in ↔ Forgot password, which keeps the email you typed.
+  const go = (next, keepEmail = false) => { setMode(next); if (!keepEmail) setEmail(''); setPassword(''); setError(''); setNotice(null); };
 
   async function submit(e) {
     e.preventDefault();
@@ -66,7 +70,9 @@ export default function Login({ initialMode = 'signin', onGuest, onPasswordSaved
       } else if (mode === 'signup') {
         const { data, error } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: webRedirect() } });
         if (error) throw error;
-        if (!data.session) setNotice({ icon: I.mail, text: <>We sent a confirmation link to <strong>{email}</strong>. Open it on this phone to finish.</> });
+        // For an email that already has an account, Supabase pretends it worked (no new identity) and sends nothing.
+        if (data.user && data.user.identities?.length === 0) throw new Error('already registered');
+        if (!data.session) setNotice({ icon: I.mail, text: <>We sent a confirmation link to <strong>{email}</strong>. Open it to finish.</> });
       } else if (mode === 'forgot') {
         const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: webRedirect() });
         if (error) throw error;
@@ -93,7 +99,7 @@ export default function Login({ initialMode = 'signin', onGuest, onPasswordSaved
       <div className="login-theme"><ThemeToggle /></div>
       <div className="login-card">
         {mode === 'forgot'
-          ? <button className="link back-link" onClick={() => go('signin')}><Icon d={I.left} />Back to sign in</button>
+          ? <button className="link back-link" onClick={() => go('signin', true)}><Icon d={I.left} />Back to sign in</button>
           : <Logo size={48} />}
         <h1>{TITLES[mode]}</h1>
         <p className="lede">
@@ -102,7 +108,7 @@ export default function Login({ initialMode = 'signin', onGuest, onPasswordSaved
             : 'RentIO: rent tracking made simple.'}
         </p>
 
-        {(mode === 'signin' || mode === 'signup') && (
+        {GOOGLE_LOGIN && (mode === 'signin' || mode === 'signup') && (
           <>
             <button type="button" className="btn google-btn" onClick={google} disabled={busy}><GoogleG />Continue with Google</button>
             <p className="divider">or</p>
@@ -138,7 +144,7 @@ export default function Login({ initialMode = 'signin', onGuest, onPasswordSaved
         <div className="login-links">
           {mode === 'signin' && (
             <>
-              <button className="link" onClick={() => go('forgot')}>Forgot password?</button>
+              <button className="link" onClick={() => go('forgot', true)}>Forgot password?</button>
               <p>New to RentIO? <button className="link" onClick={() => go('signup')}>Create an account</button></p>
             </>
           )}

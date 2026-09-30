@@ -1,6 +1,6 @@
 // Bottom sheet on phones, centred dialog on desktop: title, ×, scrolling body.
 // Escape or tapping the scrim closes it; focus stays inside and returns to the opener afterwards.
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { I, Icon } from './Icons.jsx';
 
@@ -45,17 +45,21 @@ export function useFocusTrap(ref, onClose) {
 
 export default function Doc({ title, onClose, children, printable = false }) {
   const ref = useRef(null);
-  useFocusTrap(ref, onClose);
+  const dirty = useRef(false); // something was typed: closing by accident (scrim, Esc, Back) asks first
+  const [asking, setAsking] = useState(false);
+  const close = () => (dirty.current ? setAsking(true) : onClose());
+  useFocusTrap(ref, close);
   return createPortal(
-    <div className="scrim" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="scrim" onClick={(e) => e.target === e.currentTarget && close()}>
       <section className="sheet" role="dialog" aria-modal="true" aria-label={title} ref={ref}>
         <header className="sheet-head">
           <h2>{title}</h2>
           {printable && <button className="icon-btn" aria-label="Print or save as PDF" title="Print or save as PDF" onClick={() => window.print()}><Icon d={I.printer} /></button>}
-          <button className="icon-btn" aria-label="Close" onClick={onClose}><Icon d={I.x} /></button>
+          <button className="icon-btn" aria-label="Close" onClick={close}><Icon d={I.x} /></button>
         </header>
-        <div className="sheet-body">{children}</div>
+        <div className="sheet-body" onInput={() => { dirty.current = true; }}>{children}</div>
       </section>
+      {asking && <Confirm title="Discard changes?" body="What you typed won't be saved." confirmLabel="Discard" cancelLabel="Keep editing" onConfirm={onClose} onCancel={() => setAsking(false)} />}
     </div>,
     document.body,
   );

@@ -10,25 +10,14 @@ import { I, Icon } from './Icons.jsx';
 import { Robot } from './Robot.jsx';
 import { toast } from './Toasts.jsx';
 
-// Idle hop every ~3s (±0.8s jitter), paused while Nena would compete with a task.
+// A quick hop when the pointer meets Nena. No idle looping: she shouldn't compete with the rent.
 function useHop(paused) {
   const [hop, setHop] = useState('');
-  const [kick, setKick] = useState(0);
-  useEffect(() => {
-    if (paused) return;
-    let timer;
-    const schedule = () => {
-      timer = setTimeout(() => {
-        if (!document.hidden) { setHop('hop'); setTimeout(() => setHop(''), 650); }
-        schedule();
-      }, 3000 + (Math.random() * 1.6 - 0.8) * 1000);
-    };
-    schedule();
-    return () => clearTimeout(timer);
-  }, [paused, kick]);
-  const quickHop = () => { if (paused) return; setHop('hop-quick'); setTimeout(() => setHop(''), 500); setKick((k) => k + 1); };
+  const quickHop = () => { if (paused) return; setHop('hop-quick'); setTimeout(() => setHop(''), 500); };
   return [hop, quickHop];
 }
+
+const SPOKE_KEY = 'rentio-nena-spoke'; // the speech bubble shows once per session
 
 // version changes whenever data changes, so the speech bubble is refreshed.
 export default function QuickActions({ guest, onSignUp, version, onChanged }) {
@@ -38,13 +27,13 @@ export default function QuickActions({ guest, onSignUp, version, onChanged }) {
   const [chatting, setChatting] = useState(false);
   const [adding, setAdding] = useState(null); // collection name being added
   const [askSignUp, setAskSignUp] = useState(false);
-  const [dismissed, setDismissed] = useState(null); // text the owner closed with ×
-  const [expired, setExpired] = useState(null); // text that auto-hid after 8s
+  const [spent, setSpent] = useState(() => { try { return Boolean(sessionStorage.getItem(SPOKE_KEY)); } catch { return false; } }); // bubble already shown, closed or timed out
+  const hush = () => { setSpent(true); try { sessionStorage.setItem(SPOKE_KEY, '1'); } catch { /* storage blocked */ } };
   const [hop, quickHop] = useHop(open || chatting || Boolean(adding) || askSignUp);
 
   useEffect(() => {
     if (!hint) return;
-    const t = setTimeout(() => setExpired(hint), 8000);
+    const t = setTimeout(hush, 8000);
     return () => clearTimeout(t);
   }, [hint]);
 
@@ -77,9 +66,8 @@ export default function QuickActions({ guest, onSignUp, version, onChanged }) {
     ['Add tenant', I.userPlus, () => add('tenants')],
     ['Add property', I.buildingPlus, () => add('properties')],
     ['Chat with Nena', I.chat, chat],
-    ['Rent tracker', I.rent, () => { setOpen(false); location.hash = 'payments'; }],
   ];
-  const showBubble = hint && hint !== dismissed && hint !== expired && !open && !chatting;
+  const showBubble = hint && !spent && !open && !chatting;
 
   return (
     <>
@@ -97,7 +85,7 @@ export default function QuickActions({ guest, onSignUp, version, onChanged }) {
         {showBubble && (
           <div className="speech">
             <button className="speech-text" onClick={chat}>{hint}</button>
-            <button className="speech-close" aria-label="Dismiss message" onClick={() => setDismissed(hint)}>×</button>
+            <button className="speech-close" aria-label="Dismiss message" onClick={hush}>×</button>
           </div>
         )}
         <button

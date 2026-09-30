@@ -11,7 +11,7 @@ function apply(theme) {
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#0f1115' : '#2847d6');
 }
 
-export default function ThemeToggle() {
+export default function ThemeToggle({ labelled = false }) {
   const [theme, setTheme] = useState(root.dataset.theme || 'light');
 
   useEffect(() => {
@@ -27,17 +27,15 @@ export default function ThemeToggle() {
   }, [theme]);
 
   const next = theme === 'dark' ? 'light' : 'dark';
+  const switchTheme = () => {
+    try { localStorage.setItem(KEY, next); } catch { /* storage blocked: still switches for now */ }
+    setTheme(next);
+  };
+  const icon = <Icon d={theme === 'dark' ? I.sun : I.moon} />;
+  if (labelled) return <button className="btn block" onClick={switchTheme}>{icon}Switch to {next} mode</button>;
   return (
-    <button
-      className="icon-btn"
-      aria-label={`Switch to ${next} mode`}
-      title={`Switch to ${next} mode`}
-      onClick={() => {
-        try { localStorage.setItem(KEY, next); } catch { /* storage blocked: still switches for now */ }
-        setTheme(next);
-      }}
-    >
-      <Icon d={theme === 'dark' ? I.sun : I.moon} />
+    <button className="icon-btn" aria-label={`Switch to ${next} mode`} title={`Switch to ${next} mode`} onClick={switchTheme}>
+      {icon}
     </button>
   );
 }

@@ -1,5 +1,6 @@
 // Loading, error, empty and offline states.
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { I, Icon } from './Icons.jsx';
 
 // Nothing for the first second (most loads finish), then a skeleton.
@@ -60,4 +61,14 @@ export function OfflineBanner() {
       <span><strong>You're offline.</strong> What's on screen may be out of date, and changes won't save until you're back online.</span>
     </p>
   );
+}
+
+// One status look everywhere: dot + label. kind = paid | due | behind | idle.
+export function Status({ kind = 'idle', children }) {
+  return <span className={`st ${kind}`}>{children}</span>;
+}
+
+// Renders a page's main action in the page header (slot comes from App). Nothing until the header is mounted.
+export function HeadAction({ slot, children }) {
+  return slot ? createPortal(children, slot) : null;
 }

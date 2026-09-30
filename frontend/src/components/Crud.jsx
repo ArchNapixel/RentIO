@@ -108,8 +108,8 @@ function Field({ f, value, lookups, onPick, autoFocus }) {
 
   if (f.chips) {
     return (
-      <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}>
-        <span style={{ fontSize: 14, fontWeight: 600 }}>{f.label}</span>
+      <fieldset className="field group">
+        <legend>{f.label}</legend>
         <div className="chips">
           {f.options.map((o) => (
             <label key={o}><input type="radio" name={f.key} value={o} defaultChecked={v === o} required={f.required} /><span>{o}</span></label>
@@ -120,9 +120,9 @@ function Field({ f, value, lookups, onPick, autoFocus }) {
   }
   if (f.ref || f.options) {
     const opts = f.ref ? Object.entries(lookups[f.ref] ?? {}) : f.options.map((o) => [o, o]);
-    input = <Select id={id} name={f.key} defaultValue={v} options={opts} clear={f.required ? undefined : '—'} title={f.label} autoFocus={autoFocus} onChange={(val) => onPick(f.key, val)} />;
+    input = <Select id={id} name={f.key} defaultValue={v} options={opts} clear={f.required ? undefined : '—'} autoFocus={autoFocus} onChange={(val) => onPick(f.key, val)} />;
   } else if (f.type === 'date') {
-    input = <DateField id={id} name={f.key} defaultValue={v} title={f.label} autoFocus={autoFocus} onChange={(val) => onPick(f.key, val)} />;
+    input = <DateField id={id} name={f.key} defaultValue={v} autoFocus={autoFocus} onChange={(val) => onPick(f.key, val)} />;
   } else if (f.type === 'textarea') {
     input = <textarea id={id} autoFocus={autoFocus} name={f.key} defaultValue={v} rows={3} required={f.required} />;
   } else if (f.type === 'checkbox') {

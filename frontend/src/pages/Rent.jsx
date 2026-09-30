@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, clearHashParams, hashParam, money, today, useApi } from '../api.js';
 import { I, Icon } from '../components/Icons.jsx';
-import { Empty, LoadError, Loading } from '../components/States.jsx';
+import { Empty, LoadError, Loading, Status } from '../components/States.jsx';
 import { toast } from '../components/Toasts.jsx';
 import { MONTHS, monthName, payMonths } from '../pay.js';
 
@@ -14,7 +14,7 @@ export default function Rent() {
   const [grid, reload, error] = useApi(`/rent?year=${year}`);
   const linked = useRef(hashParam('property')); // "#payments?property=…" (from Nena) scrolls to it
   const [view, setView] = useState(linked.current ? 'year' : 'due'); // every property shows in the full-year view; Due now hides the paid ones
-  const [paying, setPaying] = useState({}); // tenantId -> true while a Due-now payment saves (row is hidden optimistically)
+  const [paying, setPaying] = useState({}); // tenantId -> true while a Due-now payment saves (row fades, then leaves once the list reloads)
   const [ticks, setTicks] = useState({}); // "tenantId:month" -> value shown while saving (optimistic)
 
   useEffect(() => {
@@ -40,7 +40,7 @@ export default function Rent() {
   }
 
   async function pay(tenant, months) {
-    setPaying((s) => ({ ...s, [tenant.id]: true })); // hides the row right away
+    setPaying((s) => ({ ...s, [tenant.id]: true }));
     await payMonths(tenant, months, reload);
     setPaying(({ [tenant.id]: _, ...rest }) => rest);
   }
@@ -49,35 +49,36 @@ export default function Rent() {
 
   const noProperties = grid?.properties.length === 0;
   const dueGroups = (grid?.properties ?? [])
-    .map((p) => ({ ...p, tenants: p.tenants.filter((t) => t.due.length && !paying[t.id]) }))
+    .map((p) => ({ ...p, tenants: p.tenants.filter((t) => t.due.length) }))
     .filter((p) => p.tenants.length);
   const anyTenants = grid?.properties.some((p) => p.tenants.length);
-  const dueCount = dueGroups.reduce((n, p) => n + p.tenants.length, 0);
-  const dueTotal = dueGroups.reduce((sum, p) => sum + p.tenants.reduce((s, t) => s + t.due.length * t.monthlyRent, 0), 0);
+  const owing = dueGroups.flatMap((p) => p.tenants).filter((t) => !paying[t.id]);
+  const dueCount = owing.length;
+  const dueTotal = owing.reduce((sum, t) => sum + t.due.length * t.monthlyRent, 0);
 
   return (
     <div>
       <div className="year-nav">
         <button className={`chip ${view === 'due' ? 'soft' : ''}`} aria-pressed={view === 'due'} onClick={() => setView('due')}>Due now</button>
         <button className={`chip ${view === 'year' ? 'soft' : ''}`} aria-pressed={view === 'year'} onClick={() => setView('year')}>Full year</button>
+        {view === 'year' && (
+          <>
+            <button className="btn" aria-label="Previous year" onClick={() => setYear(year - 1)}><Icon d={I.left} /></button>
+            <strong aria-live="polite">{year}</strong>
+            <button className="btn" aria-label="Next year" onClick={() => setYear(year + 1)}><Icon d={I.right} /></button>
+            {year !== thisYear && <button className="chip soft" onClick={() => setYear(thisYear)}>This year</button>}
+          </>
+        )}
       </div>
-      {view === 'year' && (
-        <div className="year-nav">
-          <button className="btn" aria-label="Previous year" onClick={() => setYear(year - 1)}><Icon d={I.left} /></button>
-          <strong aria-live="polite">{year}</strong>
-          <button className="btn" aria-label="Next year" onClick={() => setYear(year + 1)}><Icon d={I.right} /></button>
-          <button className="chip soft" onClick={() => setYear(thisYear)} disabled={year === thisYear}>This year</button>
-        </div>
-      )}
       {(!grid || (view === 'year' && grid.year !== year)) && <Loading rows={2} />}
       {noProperties && (
-        <Empty title="No properties yet." action={<a className="btn primary sm" href="#properties">Go to Properties</a>}>
-          Add a property, then add tenants from Nena's menu. Their months show up here.
+        <Empty title="No properties yet." action={<a className="btn primary sm" href="#properties?add=1">Add property</a>}>
+          Add a property, then its tenants. Their months show up here.
         </Empty>
       )}
       {view === 'due' && grid && !noProperties && (
         !anyTenants ? (
-          <Empty icon={I.userPlus} title="No tenants yet.">Add one from Nena's menu and they'll show up here.</Empty>
+          <Empty icon={I.userPlus} title="No tenants yet." action={<a className="btn primary sm" href="#tenants?add=1">Add tenant</a>}>They'll show up here once added.</Empty>
         ) : !dueCount ? (
           <Empty icon={I.check} title="All paid up.">Everyone has paid through {MONTHS[nowIndex % 12]}.</Empty>
         ) : (
@@ -91,19 +92,19 @@ export default function Rent() {
                     const latest = t.due[t.due.length - 1];
                     const many = t.due.length > 1;
                     return (
-                      <li key={t.id} className="due-row">
+                      <li key={t.id} className={`due-row ${paying[t.id] ? 'leaving' : ''}`}>
                         <span className="grow">
-                          <span className="title">{t.name}</span>
+                          <a className="title" href={`#tenants?id=${t.id}`}>{t.name}</a>
                           <span className="sub">
                             {t.monthlyRent > 0 && `${money(t.monthlyRent)}/mo`}
-                            {t.monthsBehind > 0 && <span className="owed">{t.monthlyRent > 0 && ' · '}{t.monthsBehind} month{t.monthsBehind > 1 ? 's' : ''} behind</span>}
+                            {t.monthsBehind > 0 && <>{t.monthlyRent > 0 && ' · '}<Status kind="behind">{t.monthsBehind} month{t.monthsBehind > 1 ? 's' : ''} behind</Status></>}
                           </span>
                         </span>
                         <span className="pay-actions">
-                          <button className="btn primary" onClick={() => pay(t, t.due)}>
-                            {many ? `Pay ${t.due.length} months` : 'Mark paid'}{t.monthlyRent > 0 && ` · ${money(t.due.length * t.monthlyRent)}`}
+                          <button className="btn primary" disabled={paying[t.id]} onClick={() => pay(t, t.due)}>
+                            {many ? `Mark ${t.due.length} months paid` : 'Mark paid'}{t.monthlyRent > 0 && ` · ${money(t.due.length * t.monthlyRent)}`}
                           </button>
-                          {many && <button className="btn ghost sm" onClick={() => pay(t, [latest])}>Just {monthName(latest)}</button>}
+                          {many && <button className="btn ghost sm" disabled={paying[t.id]} onClick={() => pay(t, [latest])}>Only {monthName(latest)}</button>}
                         </span>
                       </li>
                     );
@@ -128,9 +129,9 @@ export default function Rent() {
                 const paid = new Set(t.paid);
                 const nowPaid = year === thisYear && (ticks[`${t.id}:${nowIndex % 12 + 1}`] ?? paid.has(nowIndex % 12 + 1));
                 const status = t.monthsBehind > 0
-                  ? <span className="owed">{t.monthsBehind} month{t.monthsBehind > 1 ? 's' : ''} behind</span>
+                  ? <Status kind="behind">{t.monthsBehind} month{t.monthsBehind > 1 ? 's' : ''} behind</Status>
                   : year === thisYear && nowIndex >= t.startMonth
-                    ? <span className={nowPaid ? 'paid' : 'muted'}>{MONTHS[nowIndex % 12]} {nowPaid ? 'paid' : 'due'}</span>
+                    ? <Status kind={nowPaid ? 'paid' : 'due'}>{MONTHS[nowIndex % 12]} {nowPaid ? 'paid' : 'due'}</Status>
                     : null;
                 return (
                   <li key={t.id} className="rent-row">
@@ -152,7 +153,7 @@ export default function Rent() {
                             title={state === 'before' ? 'Before move-in' : `${m} ${year}`}
                             disabled={state === 'before' || key in ticks}
                             onClick={() => toggle(t, i + 1, !checked)}
-                          >{m[0]}</button>
+                          >{m}</button>
                         );
                       })}
                     </div>
