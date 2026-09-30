@@ -6,10 +6,29 @@ import { I, Icon } from './Icons.jsx';
 
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+// Everything open on top of the page, innermost last. Android's Back button closes the top one.
+const layers = [];
+let locks = 0;
+export function pushLayer(close, { lock = true } = {}) {
+  layers.push(close);
+  if (lock && ++locks === 1) document.body.style.overflow = 'hidden'; // the page behind a sheet shouldn't scroll
+  return () => {
+    const at = layers.lastIndexOf(close);
+    if (at >= 0) layers.splice(at, 1);
+    if (lock && --locks === 0) document.body.style.overflow = '';
+  };
+}
+export function closeTopLayer() {
+  const close = layers.at(-1);
+  close?.();
+  return Boolean(close);
+}
+
 export function useFocusTrap(ref, onClose) {
   useEffect(() => {
     const opener = document.activeElement;
     const box = ref.current;
+    const release = pushLayer(onClose);
     (box.querySelector('[autofocus]') ?? box.querySelector(FOCUSABLE))?.focus();
     const onKey = (e) => {
       if (e.key === 'Escape') { e.stopPropagation(); onClose(); }
@@ -20,7 +39,7 @@ export function useFocusTrap(ref, onClose) {
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     };
     box.addEventListener('keydown', onKey);
-    return () => { box.removeEventListener('keydown', onKey); opener?.focus?.(); };
+    return () => { box.removeEventListener('keydown', onKey); release(); opener?.focus?.(); };
   }, []);
 }
 

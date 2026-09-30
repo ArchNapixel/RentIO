@@ -1,6 +1,6 @@
 // Supabase data access, always scoped to one owner (the logged-in user).
 // Database columns are snake_case; the app uses camelCase.
-import { createClient } from '@supabase/supabase-js';
+import { createClient, isAuthRetryableFetchError } from '@supabase/supabase-js';
 import { bad } from './validate.js';
 
 const { SUPABASE_URL, SUPABASE_SECRET_KEY } = process.env;
@@ -21,26 +21,36 @@ async function run(query) {
   if (error.code === '42703') throw bad('The database needs updating. Run the latest SQL from backend/schema.sql in the Supabase SQL Editor.', 503);
   if (error.code === '23503') throw bad('That record is linked to other records, so it cannot be changed or deleted.', 409);
   if (error.code === '23514') throw bad('Some values are not allowed. Check the form and try again.');
-  throw bad(error.message);
+  if (['22007', '22008', '22P02', '22001'].includes(error.code)) throw bad('Some values are not in the right format. Check the form and try again.');
+  console.error('Database error:', error.message);
+  throw bad('Something went wrong saving that. Try again.', 500);
 }
 
 // The logged-in user's id from their Supabase access token, or null if it's invalid or expired.
+// Throws 503 when Supabase itself can't be reached, so an outage never looks like an expired login.
 export async function verify(token) {
-  const { data, error } = await sb.auth.getClaims(token);
-  return error ? null : data?.claims?.sub ?? null;
+  const unavailable = () => bad("We can't check your login right now. Try again in a moment.", 503);
+  try {
+    const { data, error } = await sb.auth.getClaims(token);
+    if (error) { if (isAuthRetryableFetchError(error)) throw unavailable(); return null; }
+    return data?.claims?.sub ?? null;
+  } catch (err) {
+    throw err.expose ? err : unavailable();
+  }
 }
 
 // Supabase returns at most 1000 rows per request, so page through.
-async function all(owner, table, orderBy) {
+// Order by a unique combination, or rows sharing a timestamp can repeat or vanish at a page boundary.
+async function all(owner, table, ...orderBy) {
   const rows = [];
   for (let from = 0; ; from += 1000) {
-    const page = await run(sb.from(table).select('*').eq('owner_id', owner).order(orderBy).range(from, from + 999));
+    const page = await run(orderBy.reduce((q, col) => q.order(col), sb.from(table).select('*').eq('owner_id', owner)).range(from, from + 999));
     rows.push(...page);
     if (page.length < 1000) return rows.map(fromRow);
   }
 }
 
-export const list = (owner, c) => all(owner, c, 'created_at');
+export const list = (owner, c) => all(owner, c, 'created_at', 'id');
 export const get = async (owner, c, id) => {
   if (!isId(id)) return undefined;
   const [row] = await run(sb.from(c).select('*').eq('owner_id', owner).eq('id', id));
@@ -56,7 +66,7 @@ export const remove = async (owner, c, id) => isId(id) && (await run(sb.from(c).
 
 // ponytail: loads the owner's whole dataset for reports; move the sums into SQL views if accounts get large.
 export async function snapshot(owner) {
-  const [properties, tenants, rentPayments] = await Promise.all([list(owner, 'properties'), list(owner, 'tenants'), all(owner, 'rent_payments', 'paid_at')]);
+  const [properties, tenants, rentPayments] = await Promise.all([list(owner, 'properties'), list(owner, 'tenants'), all(owner, 'rent_payments', 'paid_at', 'tenant_id', 'year', 'month')]);
   return { properties, tenants, rentPayments };
 }
 
@@ -87,4 +97,11 @@ export async function setPaidMany(owner, tenantId, months, paid, amount) {
   } else {
     await Promise.all(months.map(({ year, month }) => run(sb.from('rent_payments').delete().match({ owner_id: owner, tenant_id: tenantId, year, month }))));
   }
+}
+
+// Removes the account and everything it owns. Children go first: tenants can't outlive their property.
+export async function deleteAccount(owner) {
+  for (const table of ['rent_payments', 'nena_actions', 'tenants', 'properties']) await run(sb.from(table).delete().eq('owner_id', owner));
+  const { error } = await sb.auth.admin.deleteUser(owner);
+  if (error) throw bad("We couldn't finish deleting your account. Try again.", 500);
 }

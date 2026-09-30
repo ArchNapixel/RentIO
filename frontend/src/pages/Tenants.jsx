@@ -9,7 +9,7 @@ import { Select } from '../components/Picker.jsx';
 import { Empty, LoadError, Loading } from '../components/States.jsx';
 import Table, { col, mcol } from '../components/Table.jsx';
 import { toast } from '../components/Toasts.jsx';
-import { MONTHS, monthName, payMonths } from '../pay.js';
+import { MONTHS, monthName, payMonths, tel } from '../pay.js';
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const monthOf = (iso) => `${MONTHS[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`;
@@ -55,7 +55,7 @@ export default function Tenants() {
   }
   async function setArchived(t, archived, undoable = true) {
     try {
-      await api(`/tenants/${t.id}`, { method: 'PUT', body: { ...t, archived } });
+      await api(`/tenants/${t.id}`, { method: 'PUT', body: { name: t.name, propertyId: t.propertyId, archived } }); // the API updates only what it's given
       setDetails(null);
       refreshAll();
       toast(undoable
@@ -114,8 +114,7 @@ export default function Tenants() {
     ['Emergency contact', [t.emergencyName, t.emergencyPhone].filter(Boolean).join(' · ')],
     ['Notes', t.notes],
   ].filter(([, v]) => v);
-  const tel = (p) => p.replace(/[^\d+]/g, '');
-
+  
   return (
     <>
       <div className="toolbar">

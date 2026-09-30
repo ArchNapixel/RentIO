@@ -85,7 +85,7 @@ const readTools = {
     parameters: obj({}),
     run: (db) => {
       const d = r.dashboard(db);
-      return { today: r.today(), tenants: d.tenants, paidThisMonth: d.paidThisMonth, collectedThisMonth: d.collectedThisMonth, expectedThisMonth: d.expectedThisMonth, overdueTotal: d.overdue, properties: d.perProperty };
+      return { today: r.today(), tenants: d.tenants, tenantsDueThisMonth: d.dueTenants, paidThisMonth: d.paidThisMonth, collectedThisMonth: d.collectedThisMonth, expectedThisMonth: d.expectedThisMonth, overdueTotal: d.overdue, properties: d.perProperty };
     },
   },
   search_tenants: {
@@ -260,8 +260,8 @@ function toContents(messages) {
 
 async function runTool({ name, args = {} }, db, state, owner) {
   try {
-    if (readTools[name]) return await readTools[name].run(db, args, owner);
-    if (actionTools[name]) {
+    if (Object.hasOwn(readTools, name)) return await readTools[name].run(db, args, owner);
+    if (Object.hasOwn(actionTools, name)) {
       if (state.proposals.length >= MAX_PROPOSALS) return { error: `Only ${MAX_PROPOSALS} changes per message. Ask the owner to confirm these first.` };
       const { summary } = actionTools[name].prepare(db, args);
       state.proposals.push({ id: randomUUID(), tool: name, title: actionTools[name].title, args, summary });
@@ -307,7 +307,7 @@ export async function chat(owner, messages) {
 
 // Runs a change the owner confirmed, then logs it.
 export async function execute(owner, tool, args) {
-  const action = actionTools[tool];
+  const action = Object.hasOwn(actionTools, String(tool)) ? actionTools[tool] : null;
   if (!action) throw bad('Unknown action.');
   const { summary, payload } = action.prepare(await store.snapshot(owner), args ?? {});
   await action.execute(owner, payload);
@@ -320,7 +320,9 @@ const insightCache = new Map(); // owner -> { key, text, at }
 export async function insight(owner) {
   const db = await store.snapshot(owner);
   const cached = insightCache.get(owner) ?? { key: '', text: '', at: 0 };
+  insightCache.delete(owner); // re-insert so the Map stays in least-recently-used order
   insightCache.set(owner, cached);
+  if (insightCache.size > 500) insightCache.delete(insightCache.keys().next().value);
   const d = r.dashboard(db);
   const fallback = { text: r.quickHint(d) };
   if (!ai) return fallback;

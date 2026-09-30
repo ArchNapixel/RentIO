@@ -10,8 +10,9 @@ export const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.m
 
 const native = Capacitor.isNativePlatform();
 const NATIVE_REDIRECT = 'com.rentio.app://login-callback';
-// Where email links (confirm account, reset password) come back to.
-export const webRedirect = () => location.origin;
+// Where email links (confirm account, reset password) come back to: this page on the web, the app itself on Android.
+// Add com.rentio.app://login-callback to Redirect URLs in the Supabase dashboard (Authentication › URL Configuration).
+export const webRedirect = () => (native ? NATIVE_REDIRECT : location.origin);
 
 // Google blocks sign-in inside app web views, so on Android we open the phone's browser
 // and Google sends the owner back to com.rentio.app://login-callback?code=…
@@ -29,6 +30,6 @@ if (native) {
     const code = new URL(url).searchParams.get('code');
     if (!code) return;
     await Browser.close().catch(() => {});
-    await supabase.auth.exchangeCodeForSession(code);
+    await supabase.auth.exchangeCodeForSession(code).catch(() => {}); // an expired or reused link just leaves you on the login screen
   });
 }

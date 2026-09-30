@@ -4,10 +4,20 @@ import * as r from './reports.js';
 import * as nena from './nena.js';
 import { demoData } from './demo.js';
 import { scheduleDigests } from './digest.js';
-import { bad, clean } from './validate.js';
+import { bad, clean, cleanMonths } from './validate.js';
 
 const PORT = process.env.PORT || 4000;
 const app = express();
+// The installed Android app is served from its own origin, so it may call this API cross-origin. Set CORS_ORIGINS (comma-separated) to change who.
+const ORIGINS = new Set((process.env.CORS_ORIGINS ?? 'https://localhost,http://localhost,capacitor://localhost').split(','));
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && ORIGINS.has(origin)) {
+    res.set({ 'Access-Control-Allow-Origin': origin, Vary: 'Origin', 'Access-Control-Allow-Headers': 'Authorization, Content-Type', 'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS' });
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+  }
+  next();
+});
 app.use('/api/ai', express.json({ limit: '8mb' })); // receipt photos and voice recordings
 app.use(express.json());
 
@@ -68,23 +78,30 @@ app.put('/api/rent/:tenantId/:year/:month', async (req, res) => {
 
 // Catch a tenant up: mark several months paid (or unpaid, for Undo) in one request.
 app.put('/api/rent/:tenantId', async (req, res) => {
-  const { months, paid } = req.body ?? {};
+  const { paid } = req.body ?? {};
   if (typeof paid !== 'boolean') throw bad('paid must be true or false');
-  if (!Array.isArray(months) || !months.length || months.length > 24) throw bad('Give between 1 and 24 months');
-  if (!months.every((m) => Number.isInteger(m?.year) && m.year >= 2000 && m.year <= 2100 && Number.isInteger(m.month) && m.month >= 1 && m.month <= 12)) throw bad('Invalid month');
+  const months = cleanMonths(req.body.months);
   const tenant = await store.get(req.owner, 'tenants', req.params.tenantId);
   if (!tenant) throw bad('Tenant not found', 404);
   await store.setPaidMany(req.owner, tenant.id, months, paid, Number(tenant.monthlyRent) || 0);
   res.json({ tenantId: tenant.id, months, paid });
 });
 
-// Nena. ponytail: one global rate limit per server process; per-owner limits if one account starts hogging it.
-const aiHits = [];
+// Delete the account and everything in it (required by app stores). The app asks the owner to confirm first.
+app.delete('/api/account', async (req, res) => {
+  await store.deleteAccount(req.owner);
+  res.status(204).end();
+});
+
+// Nena: 40 requests a minute per owner (the speech-bubble insight doesn't count). ponytail: per server process; use a shared store when there is more than one.
+const aiHits = new Map(); // owner -> request times in the last minute
 app.use('/api/ai', (req, res, next) => {
+  if (req.path === '/insight') return next();
   const now = Date.now();
-  while (aiHits.length && now - aiHits[0] > 60_000) aiHits.shift();
-  if (aiHits.length >= 40) return next(bad('Nena is getting too many requests. Wait a minute and try again.', 429));
-  aiHits.push(now);
+  const hits = (aiHits.get(req.owner) ?? []).filter((t) => now - t < 60_000);
+  if (hits.length >= 40) return next(bad('Nena is getting too many requests. Wait a minute and try again.', 429));
+  aiHits.set(req.owner, [...hits, now]);
+  if (aiHits.size > 1000) for (const [owner, times] of aiHits) if (now - times.at(-1) > 60_000) aiHits.delete(owner);
   next();
 });
 app.post('/api/ai/chat', async (req, res) => res.json(await nena.chat(req.owner, req.body?.messages)));

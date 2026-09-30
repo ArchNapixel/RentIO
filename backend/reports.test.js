@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { overdueDigest, overdueMonths, rentGrid, tenantRows, tenantSummary, toCsv } from './reports.js';
+import { alerts, dashboard, overdueDigest, overdueMonths, rentGrid, tenantRows, tenantSummary, toCsv } from './reports.js';
 
 const tenant = { id: 't', name: 'Juan', propertyId: 'p', monthlyRent: 3000, moveInDate: '2026-06-15' };
 const db = {
@@ -40,6 +40,14 @@ test('tenant summary includes the months to collect for the pay button', () => {
   assert.deepEqual(tenantSummary(db, 't', '2026-09-10').due, [{ year: 2026, month: 7 }, { year: 2026, month: 9 }]);
 });
 
+test('alerts carry what the screen needs to act on an overdue row', () => {
+  const [a] = alerts(db, '2026-09-10');
+  assert.equal(a.tenantId, 't');
+  assert.deepEqual(a.due, [{ year: 2026, month: 7 }, { year: 2026, month: 9 }]);
+  assert.equal(a.balance, 3000);
+  assert.equal(dashboard(db, '2026-09-10').monthly.length, 12);
+});
+
 test('overdue digest lists late tenants, and is empty when nobody is late', () => {
   assert.match(overdueDigest(db, '2026-09-28').text, /Juan \(Casa Luna\): Jul 2026, ₱3,000/);
   assert.equal(overdueDigest(db, '2026-07-10'), null);
@@ -47,4 +55,19 @@ test('overdue digest lists late tenants, and is empty when nobody is late', () =
 
 test('csv escapes quotes and formula injection', () => {
   assert.equal(toCsv([{ a: 'x,"y"', b: '=1+1' }]), 'a,b\n"x,""y""",\'=1+1');
+});
+
+test('someone who has not moved in yet owes nothing this month', () => {
+  const future = { ...db, tenants: [{ ...tenant, moveInDate: '2026-12-01' }], rentPayments: [] };
+  assert.deepEqual(alerts(future, '2026-09-10').filter((a) => a.type !== 'Vacancy'), []);
+  const d = dashboard(future, '2026-09-10');
+  assert.equal(d.dueTenants, 0);
+  assert.equal(d.expectedThisMonth, 0);
+  assert.equal(d.tenants, 1); // still counts for occupancy
+});
+
+test('csv keeps phone numbers intact but still defuses formulas', () => {
+  assert.equal(toCsv([{ p: '+639171234567' }]), 'p\n+639171234567');
+  assert.equal(toCsv([{ p: '+1+1' }]), "p\n'+1+1");
+  assert.equal(toCsv([{ p: '@SUM(A1)' }]), "p\n'@SUM(A1)");
 });

@@ -12,5 +12,8 @@
     "@google/genai": "^2.24.0",
     "@supabase/supabase-js": "^2.117.2",
     "express": "^5.2.1"
+  },
+  "engines": {
+    "node": ">=22.9"
   }
 }

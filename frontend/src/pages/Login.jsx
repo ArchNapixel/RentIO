@@ -53,9 +53,12 @@ export default function Login({ initialMode = 'signin', onGuest, onPasswordSaved
 
   async function submit(e) {
     e.preventDefault();
-    setBusy(true);
     setError('');
     setNotice(null);
+    if (mode !== 'reset' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return setError('Enter your email, like you@gmail.com.');
+    if (mode !== 'forgot' && !password) return setError(mode === 'reset' ? 'Enter a new password.' : 'Enter your password.');
+    if ((mode === 'signup' || mode === 'reset') && password.length < 6) return setError('Use at least 6 characters for your password.');
+    setBusy(true);
     try {
       if (mode === 'signin') {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -106,7 +109,7 @@ export default function Login({ initialMode = 'signin', onGuest, onPasswordSaved
           </>
         )}
 
-        <form className="form" onSubmit={submit}>
+        <form className="form" onSubmit={submit} noValidate>
           {mode !== 'reset' && (
             <label className="field">
               <span>Email</span>

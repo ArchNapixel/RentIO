@@ -1,6 +1,9 @@
 // Pure business logic over a db snapshot: { properties, tenants, rentPayments }.
 // Dates are ISO strings (YYYY-MM-DD). Rent is monthly: a tenant owes every month from their move-in month.
 
+// "Today" and "this month" are Philippine time wherever the server runs (a UTC host would flip the month at 8 am). Set TZ to override.
+process.env.TZ ??= 'Asia/Manila';
+
 export const PROPERTY_TYPES = ['Boarding house', 'Dormitory', 'Apartment', 'Condominium', 'House'];
 export const SHARED_TYPES = ['Boarding house', 'Dormitory']; // rented per person, have a capacity
 export const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -19,7 +22,8 @@ const monthIndex = (iso) => { const [y, m] = iso.split('-').map(Number); return 
 const fromIndex = (i) => ({ year: Math.floor(i / 12), month: (i % 12) + 1 });
 export const monthLabel = ({ year, month }) => `${MONTHS[month - 1]} ${year}`;
 
-const startIndex = (t) => monthIndex(t.moveInDate || t.createdAt?.slice(0, 10) || today());
+const localDate = (timestamp) => { const d = new Date(timestamp); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
+const startIndex = (t) => monthIndex(t.moveInDate || (t.createdAt && localDate(t.createdAt)) || today());
 const paidKeys = (db) => new Set(db.rentPayments.map((p) => `${p.tenantId}:${p.year}:${p.month}`));
 
 // Months from move-in up to (not including) the current month that are not marked paid.
@@ -49,6 +53,7 @@ export function tenantRows(db, on = today()) {
     const rent = Number(t.monthlyRent) || 0;
     return {
       id: t.id, name: t.name, propertyId: t.propertyId, property: names[t.propertyId] ?? '—', monthlyRent: rent,
+      started: startIndex(t) <= monthIndex(on), // false for someone who hasn't moved in yet: they owe nothing this month
       paidThisMonth: paid.has(`${t.id}:${year}:${month}`),
       overdueMonths: overdue.map(monthLabel).join(', '),
       overdueCount: overdue.length,
@@ -58,7 +63,8 @@ export function tenantRows(db, on = today()) {
 }
 
 export function dashboard(db, on = today()) {
-  const tenants = tenantRows(db, on);
+  const tenants = tenantRows(db, on), fin = finance(db, on);
+  const started = tenants.filter((t) => t.started);
   const { year, month } = fromIndex(monthIndex(on));
   const shared = new Set(db.properties.filter((p) => SHARED_TYPES.includes(p.type)).map((p) => p.id));
   const capacity = sum(db.properties.filter((p) => shared.has(p.id)), (p) => p.capacity);
@@ -69,18 +75,21 @@ export function dashboard(db, on = today()) {
     capacity,
     occupiedBeds,
     occupancyRate: pct(occupiedBeds, capacity),
-    paidThisMonth: tenants.filter((t) => t.paidThisMonth).length,
+    dueTenants: started.length, // who owes for this month
+    paidThisMonth: started.filter((t) => t.paidThisMonth).length,
     collectedThisMonth: sum(db.rentPayments.filter((p) => p.year === year && p.month === month), (p) => p.amount),
-    expectedThisMonth: sum(tenants, (t) => t.monthlyRent),
+    expectedThisMonth: sum(started, (t) => t.monthlyRent),
     overdue: sum(tenants, (t) => t.balance),
-    collectedLast12Months: finance(db, on).totals.income,
+    collectedLast12Months: fin.totals.income,
+    monthly: fin.monthly, // last 12 months, oldest first: { month: 'YYYY-MM', income }
     overdueTenants: tenants.filter((t) => t.overdueCount > 0),
     perProperty: db.properties.map((p) => {
       const here = tenants.filter((t) => t.propertyId === p.id);
       return {
         id: p.id, name: p.name, type: p.type, capacity: p.capacity ?? null, tenants: here.length,
         occupancy: p.capacity ? pct(here.length, p.capacity) : null,
-        paidThisMonth: here.filter((t) => t.paidThisMonth).length,
+        dueTenants: here.filter((t) => t.started).length,
+        paidThisMonth: here.filter((t) => t.started && t.paidThisMonth).length,
       };
     }),
   };
@@ -93,7 +102,7 @@ export function quickHint(d, on = today()) {
   if (d.tenants === 0) return 'No tenants yet. Tap my button to add your first tenant.';
   const late = d.overdueTenants.length;
   if (late) return `Heads up: ${late} tenant${late > 1 ? 's have' : ' has'} overdue rent (${peso(d.overdue)}). Tap to ask me who.`;
-  const unpaid = d.tenants - d.paidThisMonth;
+  const unpaid = d.dueTenants - d.paidThisMonth;
   if (unpaid) return `${unpaid} tenant${unpaid > 1 ? "s haven't" : " hasn't"} paid for ${month} yet.`;
   return `Everyone has paid for ${month}. Ask me anything.`;
 }
@@ -118,18 +127,22 @@ export function overdueDigest(db, on = today()) {
 export function alerts(db, on = today()) {
   const out = [];
   const current = monthLabel(fromIndex(monthIndex(on)));
+  const paid = paidKeys(db), raw = Object.fromEntries(db.tenants.map((t) => [t.id, t]));
+  // The structured fields (tenantId, due, …) let the Alerts screen act on a row; message is the plain-text version for notifications and email.
   for (const t of tenantRows(db, on)) {
     if (t.overdueCount) {
       out.push({
         id: `overdue-${t.id}-${t.overdueCount}`, type: 'Overdue rent', severity: t.overdueCount > 1 ? 'high' : 'medium',
         message: `${t.name} (${t.property}) hasn't paid ${t.overdueMonths}${t.balance ? `: ${peso(t.balance)}` : ''}`,
+        tenantId: t.id, name: t.name, property: t.property, months: t.overdueMonths, balance: t.balance, monthlyRent: t.monthlyRent,
+        phone: raw[t.id]?.phone ?? null, due: dueMonths(raw[t.id], paid, on),
       });
-    } else if (!t.paidThisMonth) {
-      out.push({ id: `unpaid-${t.id}-${current}`, type: 'Not yet paid', severity: 'low', message: `${t.name} (${t.property}) hasn't paid for ${current} yet` });
+    } else if (t.started && !t.paidThisMonth) {
+      out.push({ id: `unpaid-${t.id}-${current}`, type: 'Not yet paid', severity: 'low', message: `${t.name} (${t.property}) hasn't paid for ${current} yet`, tenantId: t.id });
     }
   }
   for (const p of dashboard(db, on).perProperty) {
-    if (p.capacity && p.tenants < p.capacity) out.push({ id: `vacancy-${p.id}-${p.tenants}`, type: 'Vacancy', severity: 'low', message: `${p.name} has ${p.capacity - p.tenants} of ${p.capacity} spots open` });
+    if (p.capacity && p.tenants < p.capacity) out.push({ id: `vacancy-${p.id}-${p.tenants}`, type: 'Vacancy', severity: 'low', message: `${p.name} has ${p.capacity - p.tenants} of ${p.capacity} spots open`, propertyId: p.id, name: p.name, open: p.capacity - p.tenants, capacity: p.capacity });
   }
   const rank = { high: 0, medium: 1, low: 2 };
   return out.sort((a, b) => rank[a.severity] - rank[b.severity]);
@@ -143,7 +156,7 @@ export function finance(db, on = today()) {
   });
   return {
     monthly,
-    totals: { income: sum(monthly, (m) => m.income), expectedMonthly: sum(tenantRows(db, on), (t) => t.monthlyRent), tenants: tenantRows(db, on).length },
+    totals: { income: sum(monthly, (m) => m.income), expectedMonthly: sum(tenantRows(db, on).filter((t) => t.started), (t) => t.monthlyRent), tenants: tenantRows(db, on).length },
   };
 }
 
@@ -190,7 +203,7 @@ export function toCsv(rows) {
   const esc = (v) => {
     if (v == null) return '';
     let s = String(v);
-    if (typeof v === 'string' && /^[=+\-@]/.test(s)) s = `'${s}`; // stop spreadsheet formula injection
+    if (typeof v === 'string' && /^([=@\t\r]|[+-](?![\d\s().-]*$))/.test(s)) s = `'${s}`; // stop spreadsheet formula injection (but leave "+639…" phone numbers alone)
     return /[",\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
   };
   return [cols.join(','), ...rows.map((r) => cols.map((c) => esc(r[c])).join(','))].join('\n');

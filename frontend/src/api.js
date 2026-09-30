@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { supabase } from './supabase.js';
 
 const CURRENCY = 'PHP';
 const LOCALE = 'en-PH';
+// The installed app has no dev proxy, so it needs the backend's full address at build time. On the web, /api is proxied.
+const BASE = import.meta.env.VITE_API_URL ?? '';
 
 // Every request carries the logged-in owner's token; the backend only returns their data.
 async function authHeader() {
@@ -11,7 +14,12 @@ async function authHeader() {
 }
 
 async function request(path, init = {}) {
-  const res = await fetch('/api' + path, { ...init, headers: { ...(await authHeader()), ...init.headers } });
+  let res;
+  try {
+    res = await fetch(BASE + '/api' + path, { ...init, headers: { ...(await authHeader()), ...init.headers }, signal: AbortSignal.timeout(path.startsWith('/ai/') ? 90_000 : 20_000) });
+  } catch {
+    throw new Error("Couldn't reach the server. Check your connection and try again.");
+  }
   if (res.status === 401) { // expired session: back to the login screen, which explains why
     try { sessionStorage.setItem('rentio-expired', '1'); } catch { /* storage blocked */ }
     supabase.auth.signOut();
@@ -34,19 +42,27 @@ export async function api(path, { method = 'GET', body } = {}) {
 export async function download(path, filename) {
   const res = await request(path);
   if (!res.ok) throw new Error("Couldn't download the file. Try again.");
-  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(await res.blob()), download: filename });
+  const blob = await res.blob();
+  const file = new File([blob], filename, { type: blob.type || 'text/csv' });
+  // The Android app's web view can't save downloaded links, so it hands the file to the phone's share sheet instead.
+  if (Capacitor.isNativePlatform() && navigator.canShare?.({ files: [file] })) return navigator.share({ files: [file], title: filename }).catch(() => {});
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: filename });
   a.click();
-  URL.revokeObjectURL(a.href);
+  setTimeout(() => URL.revokeObjectURL(a.href), 10_000); // revoking right away can cancel the download
 }
 
 // [data, reload, error]. data stays null until loaded; error is a message when the request failed.
 export function useApi(path) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
-  const load = useCallback(
-    () => api(path).then((d) => { setData(d); setError(null); }, (err) => setError(err.message)),
-    [path],
-  );
+  const latest = useRef(0); // only the newest request may update the screen (a slow old one must not overwrite it)
+  const load = useCallback(() => {
+    const mine = ++latest.current;
+    return api(path).then(
+      (d) => { if (mine === latest.current) { setData(d); setError(null); } },
+      (err) => { if (mine === latest.current) setError(err.message); },
+    );
+  }, [path]);
   useEffect(() => { if (path) load(); }, [load, path]); // null path = don't fetch
   return [data, load, error];
 }

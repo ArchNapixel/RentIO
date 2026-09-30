@@ -6,13 +6,16 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "android:connect": "adb reverse tcp:5173 tcp:5173"
+    "android:connect": "adb reverse tcp:5173 tcp:5173",
+    "android:dev": "node scripts/android.mjs dev",
+    "android:release": "node scripts/android.mjs release"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.2",
     "@capacitor/app": "^8.1.1",
     "@capacitor/browser": "^8.0.4",
     "@capacitor/core": "^8.5.2",
+    "@capacitor/local-notifications": "^8.3.1",
     "@supabase/supabase-js": "^2.117.2",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"

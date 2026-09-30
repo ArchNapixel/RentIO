@@ -12,10 +12,10 @@ export default function Rent() {
   const nowIndex = thisYear * 12 + Number(today().slice(5, 7)) - 1;
   const [year, setYear] = useState(thisYear);
   const [grid, reload, error] = useApi(`/rent?year=${year}`);
-  const [view, setView] = useState('due');
+  const linked = useRef(hashParam('property')); // "#payments?property=…" (from Nena) scrolls to it
+  const [view, setView] = useState(linked.current ? 'year' : 'due'); // every property shows in the full-year view; Due now hides the paid ones
   const [paying, setPaying] = useState({}); // tenantId -> true while a Due-now payment saves (row is hidden optimistically)
   const [ticks, setTicks] = useState({}); // "tenantId:month" -> value shown while saving (optimistic)
-  const linked = useRef(hashParam('property')); // "#payments?property=…" (from Nena) scrolls to it
 
   useEffect(() => {
     if (!grid) return;
@@ -69,7 +69,7 @@ export default function Rent() {
           <button className="chip soft" onClick={() => setYear(thisYear)} disabled={year === thisYear}>This year</button>
         </div>
       )}
-      {!grid && <Loading rows={2} />}
+      {(!grid || (view === 'year' && grid.year !== year)) && <Loading rows={2} />}
       {noProperties && (
         <Empty title="No properties yet." action={<a className="btn primary sm" href="#properties">Go to Properties</a>}>
           Add a property, then add tenants from Nena's menu. Their months show up here.
@@ -114,7 +114,7 @@ export default function Rent() {
           </>
         )
       )}
-      {view === 'year' && grid?.properties.map((p) => (
+      {view === 'year' && grid?.year === year && grid.properties.map((p) => (
         <section className="card grid-card" key={p.id} id={`property-${p.id}`}>
           <header>
             <h2>{p.name}</h2>

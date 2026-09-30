@@ -1,5 +1,5 @@
 // Add/edit form for any collection in resources.js.
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, money, useApi, useLookups } from '../api.js';
 import { resources } from '../resources.js';
 import { I, Icon } from './Icons.jsx';
@@ -18,6 +18,7 @@ export function RecordForm({ name, row, onDone, before, after }) {
   const [lookups] = useLookups();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const errorRef = useRef(null);
   const formRef = useRef(null);
   const [draft, setDraft] = useState(null); // live form values, for fields with showIf
 
@@ -48,6 +49,8 @@ export function RecordForm({ name, row, onDone, before, after }) {
     if (key === 'propertyId' && rentBox() && !rentBox().dataset.typed && rents[value]) rentBox().value = money(rents[value]);
   };
 
+  useEffect(() => { errorRef.current?.scrollIntoView({ block: 'nearest' }); }, [error]);
+
   async function save(e) {
     e.preventDefault();
     const body = Object.fromEntries(new FormData(e.currentTarget));
@@ -59,7 +62,12 @@ export function RecordForm({ name, row, onDone, before, after }) {
         body[f.key] = v;
       }
       if (f.showIf && !f.showIf(body)) body[f.key] = null; // clear values of hidden fields
-      else if (f.required && (f.ref || f.options) && !f.chips && !body[f.key]) return setError(`${f.label}: choose one from the list.`);
+      else {
+        const value = String(body[f.key] ?? '').trim();
+        if (f.required && !value) return setError(f.ref || f.options ? `${f.label}: choose one.` : `${f.label} is required.`);
+        if (f.type === 'email' && value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return setError(`${f.label}: enter an email like juan@gmail.com, or leave it blank.`);
+        if (f.type === 'number' && value && (Number(value) < (f.min ?? -Infinity) || (f.step === 1 && !Number.isInteger(Number(value))))) return setError(`${f.label}: enter a whole number of at least ${f.min ?? 1}.`);
+      }
     }
     setBusy(true);
     try {
@@ -73,7 +81,7 @@ export function RecordForm({ name, row, onDone, before, after }) {
 
   if (!lookups.properties || (name === 'tenants' && !row.id && !others && !othersError)) return <p className="muted">Loading…</p>;
   return (
-    <form className="form" ref={formRef} onSubmit={save} onChange={onChange}>
+    <form className="form" ref={formRef} onSubmit={save} onChange={onChange} noValidate>
       {before}
       {main.map((f, i) => <Field key={f.key} f={f} value={initial(f)} lookups={lookups} onPick={onPick} autoFocus={i === 0 && !row.id} />)}
       {more.length > 0 && (
@@ -83,7 +91,7 @@ export function RecordForm({ name, row, onDone, before, after }) {
         </details>
       )}
       {after}
-      {error && <p className="box error" role="alert"><Icon d={I.alert} />{error}</p>}
+      {error && <p className="box error" role="alert" ref={errorRef}><Icon d={I.alert} />{error}</p>}
       <div className="form-actions">
         <button type="button" className="btn" onClick={() => onDone(null)}>Cancel</button>
         <button className="btn primary" disabled={busy}>{busy ? <><span className="spinner" /> Saving…</> : row.id ? `Save ${singular}` : `Add ${singular}`}</button>

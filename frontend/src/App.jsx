@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { App as NativeApp } from '@capacitor/app';
 import { supabase } from './supabase.js';
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
@@ -6,6 +8,8 @@ import Properties from './pages/Properties.jsx';
 import Tenants from './pages/Tenants.jsx';
 import Rent from './pages/Rent.jsx';
 import Alerts, { useAlertNotifier } from './pages/Alerts.jsx';
+import Account from './components/Account.jsx';
+import { closeTopLayer } from './components/Doc.jsx';
 import QuickActions from './components/QuickActions.jsx';
 import { I, Icon } from './components/Icons.jsx';
 import { Wordmark } from './components/Robot.jsx';
@@ -46,12 +50,13 @@ export default function App() {
 
   if (session === undefined) return null;
   if (recovering) return <Login initialMode="reset" onPasswordSaved={() => setRecovering(false)} />;
-  if (session) return <Shell key={session.user.id} />;
+  if (session) return <Shell key={session.user.id} email={session.user.email} />;
   if (guest) return <Shell guest onSignUp={() => { setLoginMode('signup'); setGuest(false); }} />;
   return <Login key={loginMode} initialMode={loginMode} onGuest={() => setGuest(true)} />;
 }
 
-function Shell({ guest = false, onSignUp }) {
+function Shell({ guest = false, onSignUp, email }) {
+  const [account, setAccount] = useState(false);
   const [route, setRoute] = useState(guest ? 'dashboard' : current);
   const [hash, setHash] = useState(location.hash);
   const [version, setVersion] = useState(0); // bumped when data changes outside the page (quick add, Nena)
@@ -60,6 +65,16 @@ function Shell({ guest = false, onSignUp }) {
     addEventListener('hashchange', onHash);
     return () => removeEventListener('hashchange', onHash);
   }, [guest]);
+  // Android's Back button: close whatever is open on top, else go back a screen, else leave the app.
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    const listener = NativeApp.addListener('backButton', ({ canGoBack }) => {
+      if (closeTopLayer()) return;
+      if (canGoBack) history.back();
+      else NativeApp.exitApp();
+    });
+    return () => { listener.then((l) => l.remove()); };
+  }, []);
   const alertCount = useAlertNotifier(!guest);
   const online = useOnline();
   const [title, Page] = pages[route];
@@ -90,12 +105,13 @@ function Shell({ guest = false, onSignUp }) {
             <ThemeToggle />
             {guest
               ? <button className="btn primary sm" onClick={onSignUp}>Sign up</button>
-              : <button className="btn sm" onClick={() => supabase.auth.signOut()}>Log out</button>}
+              : <button className="icon-btn" aria-label="Account" title="Account" onClick={() => setAccount(true)}><Icon d={I.user} /></button>}
           </span>
         </header>
         {!online && <OfflineBanner />}
         <Page key={`${hash}:${version}`} guest={guest} />
       </main>
+      {account && <Account email={email} onClose={() => setAccount(false)} />}
       <Toasts />
       <QuickActions guest={guest} onSignUp={onSignUp} version={version} onChanged={() => setVersion((v) => v + 1)} />
     </div>

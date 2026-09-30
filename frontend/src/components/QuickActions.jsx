@@ -5,7 +5,7 @@ import { useApi } from '../api.js';
 import { resources } from '../resources.js';
 import Chat from './Chat.jsx';
 import { RecordForm } from './Crud.jsx';
-import Doc from './Doc.jsx';
+import Doc, { pushLayer } from './Doc.jsx';
 import { I, Icon } from './Icons.jsx';
 import { Robot } from './Robot.jsx';
 import { toast } from './Toasts.jsx';
@@ -47,6 +47,10 @@ export default function QuickActions({ guest, onSignUp, version, onChanged }) {
     const t = setTimeout(() => setExpired(hint), 8000);
     return () => clearTimeout(t);
   }, [hint]);
+
+  // Android's Back button closes these like it closes a sheet.
+  useEffect(() => (chatting ? pushLayer(() => setChatting(false), { lock: false }) : undefined), [chatting]);
+  useEffect(() => (open ? pushLayer(() => setOpen(false), { lock: false }) : undefined), [open]);
 
   useEffect(() => {
     if (!open) return;

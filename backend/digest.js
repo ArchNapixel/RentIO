@@ -10,15 +10,19 @@ const { RESEND_API_KEY, DIGEST_FROM = 'RentIO <onboarding@resend.dev>', DIGEST_H
 export async function sendDigests() {
   let sent = 0;
   for (const owner of await store.owners()) {
-    const mail = overdueDigest(await store.snapshot(owner.id));
-    if (!mail) continue;
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: DIGEST_FROM, to: owner.email, ...mail }),
-    });
-    if (res.ok) sent++;
-    else console.error(`Digest to ${owner.email} failed:`, await res.text()); // keep going for the other owners
+    try { // one owner's failure must not stop everyone else's email
+      const mail = overdueDigest(await store.snapshot(owner.id));
+      if (!mail) continue;
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: DIGEST_FROM, to: owner.email, ...mail }),
+      });
+      if (res.ok) sent++;
+      else console.error(`Digest to ${owner.email} failed:`, await res.text());
+    } catch (err) {
+      console.error(`Digest for ${owner.email} failed:`, err.message);
+    }
   }
   return sent;
 }

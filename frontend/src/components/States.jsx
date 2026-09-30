@@ -54,11 +54,10 @@ export function useOnline() {
 }
 
 export function OfflineBanner() {
-  const [since] = useState(() => new Date().toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' }));
   return (
     <p className="box due offline" role="status">
       <Icon d={I.wifiOff} />
-      <span><strong>You're offline.</strong> You're seeing what loaded last, at {since}. Ticks and edits will work again once you're back online.</span>
+      <span><strong>You're offline.</strong> What's on screen may be out of date, and changes won't save until you're back online.</span>
     </p>
   );
 }

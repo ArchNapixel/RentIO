@@ -54,9 +54,11 @@ export default function Properties() {
       {rows?.length > 0 && (
         <ul className="card list">
           {rows.map((p) => (
-            <li key={p.id}>
-              <span className="grow"><span className="title">{p.name}</span><span className="sub">{p.type}</span></span>
-              <button className="link" onClick={() => setEditing(p)}>Inspect details</button>
+            <li key={p.id} className="tap">
+              <button className="row-btn" onClick={() => setEditing(p)}>
+                <span className="grow"><span className="title">{p.name}</span><span className="sub">{p.type}</span></span>
+                <Icon d={I.right} />
+              </button>
             </li>
           ))}
         </ul>
@@ -72,7 +74,7 @@ export default function Properties() {
               <div className="danger-zone">
                 <h3>Danger zone</h3>
                 <button type="button" className="btn danger" disabled={assigned > 0} onClick={() => setConfirming(true)}>Delete property</button>
-                {assigned > 0 && <p>Can't delete: {assigned} tenant{assigned > 1 ? 's are' : ' is'} still assigned. Move them to another property or archive them first.</p>}
+                {assigned > 0 && <p>Can't delete: {assigned} tenant{assigned > 1 ? 's are' : ' is'} still assigned, including anyone who moved out. Move them to another property first (open the tenant, then Edit).</p>}
               </div>
             )}
           />

@@ -27,7 +27,10 @@ export default function Chat({ greeting, active, onClose, onNavigate, onChanged 
   const endRef = useRef(null);
   const inputRef = useRef(null);
   const fileRef = useRef(null);
+  const stopRef = useRef(null);
 
+  useEffect(() => { stopRef.current = stopRecording; }, [stopRecording]);
+  useEffect(() => () => { stopRef.current?.().catch(() => {}); }, []); // logging out mid-recording must not leave the mic on
   useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }); }, [messages, busy]);
   useEffect(() => { if (active) inputRef.current?.focus(); }, [active]);
   useEffect(() => { // recordings stop by themselves after a minute
