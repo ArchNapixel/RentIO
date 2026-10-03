@@ -33,8 +33,8 @@ function Collected({ monthly }) {
   );
 }
 
-export default function Dashboard({ guest }) {
-  const [d, reload, error] = useApi(guest ? '/demo/dashboard' : '/reports/dashboard');
+export default function Dashboard() {
+  const [d, reload, error] = useApi('/reports/dashboard');
   const MON = new Date().toLocaleString('en-PH', { month: 'short' }); // read on every render, so it's right after midnight too
   if (error && !d) return <LoadError what="your summary" onRetry={reload} />;
   if (!d) return <Loading />;
@@ -48,7 +48,6 @@ export default function Dashboard({ guest }) {
 
   return (
     <>
-      {guest && <p className="box info demo-note"><Icon d={I.alert} />You're looking at sample data. Sign up to add your own properties and tenants.</p>}
       <div className="stats">
         <Stat wide label="Collected this month" value={money(d.collectedThisMonth)} of={money(d.expectedThisMonth)} progress={d.expectedThisMonth ? d.collectedThisMonth / d.expectedThisMonth : 0} note={`${money(d.collectedLast12Months)} in the last 12 months`} />
         <Stat href={d.overdue ? '#payments' : undefined} label="Overdue" value={<span className={d.overdue ? 'owed' : ''}>{money(d.overdue)}</span>} note={d.overdueTenants.length ? `${d.overdueTenants.length} tenant${d.overdueTenants.length > 1 ? 's' : ''} behind` : 'Everyone is up to date'} />

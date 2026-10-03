@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { App as NativeApp } from '@capacitor/app';
-import { supabase } from './supabase.js';
-import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Properties from './pages/Properties.jsx';
 import Tenants from './pages/Tenants.jsx';
@@ -12,7 +10,6 @@ import { closeTopLayer } from './components/Doc.jsx';
 import QuickActions from './components/QuickActions.jsx';
 import { I, Icon } from './components/Icons.jsx';
 import { Wordmark } from './components/Robot.jsx';
-import { OfflineBanner, useOnline } from './components/States.jsx';
 import Toasts from './components/Toasts.jsx';
 import ThemeToggle from './components/ThemeToggle.jsx';
 import { useAlertNotifier } from './notify.js';
@@ -31,41 +28,21 @@ const current = () => {
   return pages[path] ? path : 'dashboard';
 };
 
-// Login gate: signed in → the app; guest → sample dashboard only; otherwise → login screen.
 export default function App() {
-  const [session, setSession] = useState(undefined); // undefined while checking for a saved login
-  const [recovering, setRecovering] = useState(false); // opened a "reset password" email link
-  const [guest, setGuest] = useState(false);
-  const [loginMode, setLoginMode] = useState('signin');
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data } = supabase.auth.onAuthStateChange((event, s) => {
-      setSession(s);
-      if (event === 'PASSWORD_RECOVERY') setRecovering(true);
-      if (s) setGuest(false);
-    });
-    return () => data.subscription.unsubscribe();
-  }, []);
-
-  if (session === undefined) return null;
-  if (recovering) return <Login initialMode="reset" onPasswordSaved={() => setRecovering(false)} />;
-  if (session) return <Shell key={session.user.id} email={session.user.email} />;
-  if (guest) return <Shell guest onSignUp={() => { setLoginMode('signup'); setGuest(false); }} />;
-  return <Login key={loginMode} initialMode={loginMode} onGuest={() => setGuest(true)} />;
+  return <Shell />;
 }
 
-function Shell({ guest = false, onSignUp, email }) {
+function Shell() {
   const [account, setAccount] = useState(false);
   const [slot, setSlot] = useState(null); // header spot where a page puts its Add button
-  const [route, setRoute] = useState(guest ? 'dashboard' : current);
+  const [route, setRoute] = useState(current);
   const [hash, setHash] = useState(location.hash);
   const [version, setVersion] = useState(0); // bumped when data changes outside the page (quick add, Nena)
   useEffect(() => {
-    const onHash = () => { setRoute(guest ? 'dashboard' : current()); setHash(location.hash); scrollTo(0, 0); };
+    const onHash = () => { setRoute(current()); setHash(location.hash); scrollTo(0, 0); };
     addEventListener('hashchange', onHash);
     return () => removeEventListener('hashchange', onHash);
-  }, [guest]);
+  }, []);
   // Android's Back button: close whatever is open on top, else go back a screen, else leave the app.
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
@@ -76,14 +53,13 @@ function Shell({ guest = false, onSignUp, email }) {
     });
     return () => { listener.then((l) => l.remove()); };
   }, []);
-  const alertCount = useAlertNotifier(!guest);
-  const online = useOnline();
+  const alertCount = useAlertNotifier();
   const [title, Page] = pages[route];
   const badge = alertCount > 9 ? '9+' : alertCount;
 
   return (
-    <div className={`layout ${guest ? 'guest' : ''}`}>
-      {!guest && (
+    <div className="layout">
+      {(
         <nav className="nav" aria-label="Main">
           <a className="brand" href="#dashboard" aria-label="RentIO home"><Wordmark /></a>
           {Object.entries(pages).map(([key, [, , label, icon]]) => (
@@ -105,17 +81,14 @@ function Shell({ guest = false, onSignUp, email }) {
           <h1>{title}</h1>
           <span className="row-actions">
             <span className="head-slot" ref={setSlot} />
-            {guest
-              ? <><ThemeToggle /><button className="btn primary sm" onClick={onSignUp}>Sign up</button></>
-              : <button className="icon-btn head-account" aria-label="Account" title="Account" onClick={() => setAccount(true)}><Icon d={I.user} /></button>}
+            <button className="icon-btn head-account" aria-label="Account" title="Account" onClick={() => setAccount(true)}><Icon d={I.user} /></button>
           </span>
         </header>
-        {!online && <OfflineBanner />}
-        <Page key={`${hash}:${version}`} guest={guest} slot={slot} />
+        <Page key={`${hash}:${version}`} slot={slot} />
       </main>
-      {account && <Account email={email} onClose={() => setAccount(false)} />}
+      {account && <Account onClose={() => setAccount(false)} />}
       <Toasts />
-      <QuickActions guest={guest} onSignUp={onSignUp} version={version} onChanged={() => setVersion((v) => v + 1)} />
+      <QuickActions version={version} onChanged={() => setVersion((v) => v + 1)} />
     </div>
   );
 }

@@ -1,49 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { supabase } from './supabase.js';
+import { exportCsv, route } from './local.js';
 
 const CURRENCY = 'PHP';
 const LOCALE = 'en-PH';
-// The installed app has no dev proxy, so it needs the backend's full address at build time. On the web, /api is proxied.
-const BASE = import.meta.env.VITE_API_URL ?? '';
 
-// Every request carries the logged-in owner's token; the backend only returns their data.
-async function authHeader() {
-  const { data } = await supabase.auth.getSession();
-  return data.session ? { Authorization: `Bearer ${data.session.access_token}` } : {};
-}
-
-async function request(path, init = {}) {
-  let res;
-  try {
-    res = await fetch(BASE + '/api' + path, { ...init, headers: { ...(await authHeader()), ...init.headers }, signal: AbortSignal.timeout(path.startsWith('/ai/') ? 90_000 : 20_000) });
-  } catch {
-    throw new Error("Couldn't reach the server. Check your connection and try again.");
-  }
-  if (res.status === 401) { // expired session: back to the login screen, which explains why
-    try { sessionStorage.setItem('rentio-expired', '1'); } catch { /* storage blocked */ }
-    supabase.auth.signOut();
-  }
-  return res;
-}
-
+// Same call shape the server API had; it now reads and writes the phone's own storage (see local.js).
 export async function api(path, { method = 'GET', body } = {}) {
-  const res = await request(path, {
-    method,
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
-    body: body && JSON.stringify(body),
-  });
-  const data = res.status === 204 ? null : await res.json().catch(() => null);
-  if (!res.ok) throw new Error(data?.error || `Couldn't reach the server (${res.status}). Is the backend running?`);
-  return data;
+  return route(path, method, body);
 }
 
-// File downloads (CSV) need the login token too, so they can't be plain links.
-export async function download(path, filename) {
-  const res = await request(path);
-  if (!res.ok) throw new Error("Couldn't download the file. Try again.");
-  const blob = await res.blob();
-  const file = new File([blob], filename, { type: blob.type || 'text/csv' });
+// CSV export: written on the phone, then saved (browser) or handed to the share sheet (Android).
+export async function download(name, filename) {
+  const blob = new Blob([exportCsv(name)], { type: 'text/csv' });
+  const file = new File([blob], filename, { type: 'text/csv' });
   // The Android app's web view can't save downloaded links, so it hands the file to the phone's share sheet instead.
   if (Capacitor.isNativePlatform() && navigator.canShare?.({ files: [file] })) return navigator.share({ files: [file], title: filename }).catch(() => {});
   const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: filename });

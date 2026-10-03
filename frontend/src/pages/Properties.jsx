@@ -75,7 +75,7 @@ export default function Properties({ slot }) {
               <div className="danger-zone">
                 <h3>Danger zone</h3>
                 <button type="button" className="btn danger" disabled={assigned > 0} onClick={() => setConfirming(true)}>Delete property</button>
-                {assigned > 0 && <p>Can't delete: {assigned} tenant{assigned > 1 ? 's are' : ' is'} still assigned, including anyone who moved out. Move them to another property first (open the tenant, then Edit).</p>}
+                {assigned > 0 && <p>Can't delete: {assigned} tenant{assigned > 1 ? 's are' : ' is'} still assigned. Move them out or to another property first (open the tenant, then Edit).</p>}
               </div>
             )}
           />

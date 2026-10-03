@@ -89,7 +89,7 @@ export default function Rent() {
                 <header><h2>{p.name}</h2></header>
                 <ul className="list">
                   {p.tenants.map((t) => {
-                    const latest = t.due[t.due.length - 1];
+                    const oldest = t.due[0];
                     const many = t.due.length > 1;
                     return (
                       <li key={t.id} className={`due-row ${paying[t.id] ? 'leaving' : ''}`}>
@@ -104,7 +104,7 @@ export default function Rent() {
                           <button className="btn primary" disabled={paying[t.id]} onClick={() => pay(t, t.due)}>
                             {many ? `Mark ${t.due.length} months paid` : 'Mark paid'}{t.monthlyRent > 0 && ` · ${money(t.due.length * t.monthlyRent)}`}
                           </button>
-                          {many && <button className="btn ghost sm" disabled={paying[t.id]} onClick={() => pay(t, [latest])}>Only {monthName(latest)}</button>}
+                          {many && <button className="btn ghost sm" disabled={paying[t.id]} onClick={() => pay(t, [oldest])}>Only {monthName(oldest)}</button>}
                         </span>
                       </li>
                     );

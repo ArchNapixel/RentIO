@@ -18,7 +18,6 @@ export default function Tenants({ slot }) {
   const [rows, reload, loadError] = useApi('/tenants');
   const [balances, reloadBalances] = useApi('/reports/tenant-balances'); // current tenants only
   const [lookups] = useLookups();
-  const [tab, setTab] = useState('current'); // current | moved
   const [query, setQuery] = useState('');
   const [propertyId, setPropertyId] = useState('');
   const [details, setDetails] = useState(null); // tenant summary from the API
@@ -55,18 +54,6 @@ export default function Tenants({ slot }) {
     setAdding(false);
     if (tenant) { toast(`${tenant.name} added.`); refreshAll(); }
   }
-  async function setArchived(t, archived, undoable = true) {
-    try {
-      await api(`/tenants/${t.id}`, { method: 'PUT', body: { name: t.name, propertyId: t.propertyId, archived } }); // the API updates only what it's given
-      setDetails(null);
-      refreshAll();
-      toast(undoable
-        ? { text: `${t.name} ${archived ? 'moved out' : 'moved back in'}.`, action: 'Undo', onAction: () => setArchived(t, !archived, false) }
-        : `${t.name} ${archived ? 'moved out' : 'moved back in'}.`);
-    } catch (err) {
-      toast({ text: err.message, error: true });
-    }
-  }
   async function remove() {
     const t = details.tenant;
     setDeleting(true);
@@ -74,7 +61,7 @@ export default function Tenants({ slot }) {
       await api(`/tenants/${t.id}`, { method: 'DELETE' });
       setConfirming(false);
       setDetails(null);
-      toast(`${t.name} deleted.`);
+      toast(`${t.name} moved out.`);
       refreshAll();
     } catch (err) {
       setConfirming(false);
@@ -94,12 +81,12 @@ export default function Tenants({ slot }) {
   const properties = Object.entries(lookups.properties ?? {});
   const q = query.trim().toLowerCase();
   const shown = rows
-    ?.filter((x) => !!x.archived === (tab === 'moved') && (!propertyId || x.propertyId === propertyId) && (!q || x.name.toLowerCase().includes(q)))
+    ?.filter((x) => (!propertyId || x.propertyId === propertyId) && (!q || x.name.toLowerCase().includes(q)))
     .sort((a, b) => behind(b) - behind(a) || unpaid(b) - unpaid(a) || a.name.localeCompare(b.name));
 
   function status(x) {
     const b = owed[x.id];
-    if (x.archived || !b) return null;
+    if (!b) return null;
     if (b.overdueCount) return <Status kind="behind">{plural(b.overdueCount, 'month')} behind · {money(b.balance)}</Status>;
     if (x.moveInDate?.slice(0, 7) > now.slice(0, 7)) return <Status>Moves in {monthOf(x.moveInDate)}</Status>;
     return b.paidThisMonth ? <Status kind="paid">Paid for {thisMonth}</Status> : <Status kind="due">{thisMonth} due</Status>;
@@ -124,8 +111,6 @@ export default function Tenants({ slot }) {
       </div>
       <HeadAction slot={slot}><button className="btn primary" onClick={() => setAdding(true)}><Icon d={I.plus} />Add tenant</button></HeadAction>
       <div className="year-nav">
-        <button className={`chip ${tab === 'current' ? 'soft' : ''}`} aria-pressed={tab === 'current'} onClick={() => setTab('current')}>Current</button>
-        <button className={`chip ${tab === 'moved' ? 'soft' : ''}`} aria-pressed={tab === 'moved'} onClick={() => setTab('moved')}>Moved out</button>
         {properties.length > 1 && (
           <Select aria-label="Filter by property" title="Property" options={properties} clear="All properties" onChange={setPropertyId} />
         )}
@@ -134,8 +119,7 @@ export default function Tenants({ slot }) {
       {!rows && <Loading />}
       {shown?.length === 0 && (
         q || propertyId ? <Empty icon={I.tenants} title="No tenants match.">Try a different name or property.</Empty>
-          : tab === 'moved' ? <Empty icon={I.tenants} title="No one has moved out." />
-            : <Empty icon={I.tenants} title="No tenants yet." action={<button className="btn primary sm" onClick={() => setAdding(true)}>Add tenant</button>} />
+          : <Empty icon={I.tenants} title="No tenants yet." action={<button className="btn primary sm" onClick={() => setAdding(true)}>Add tenant</button>} />
       )}
       {shown?.length > 0 && (
         <>
@@ -178,7 +162,7 @@ export default function Tenants({ slot }) {
       {details && !editing && (
         <Doc title={t.name} onClose={() => setDetails(null)}>
           <div className="form">
-            {!t.archived && due.length > 0 && (
+            {due.length > 0 && (
               <>
                 {details.overdueMonths.length > 0 && (
                   <p className="box error"><span><strong>Unpaid months: {details.overdueMonths.join(', ')}</strong><br />Balance owed: {money(details.balance)}</span></p>
@@ -187,11 +171,11 @@ export default function Tenants({ slot }) {
                   {due.length > 1 ? `Mark ${due.length} months paid` : 'Mark paid'}{rent > 0 && ` · ${money(due.length * rent)}`}
                 </button>
                 {due.length > 1 && (
-                  <button className="btn ghost block" onClick={() => payMonths(t, [due.at(-1)], () => refreshSheet(t.id))}>Only {monthName(due.at(-1))}</button>
+                  <button className="btn ghost block" onClick={() => payMonths(t, [due[0]], () => refreshSheet(t.id))}>Only {monthName(due[0])}</button>
                 )}
               </>
             )}
-            {!t.archived && due.length === 0 && (startsLater
+            {due.length === 0 && (startsLater
               ? <p className="muted small">Rent starts {monthOf(t.moveInDate)}.</p>
               : <p className="box success"><Icon d={I.check} />Paid up through {thisMonth}.</p>)}
 
@@ -212,7 +196,7 @@ export default function Tenants({ slot }) {
 
             <div className="form-actions">
               <button className="btn" onClick={() => setEditing(true)}>Edit</button>
-              <button className="btn" onClick={() => setArchived(t, !t.archived)}>{t.archived ? 'Move back in' : 'Move out'}</button>
+              <button className="btn" onClick={() => setConfirming(true)}>Move out</button>
             </div>
           </div>
         </Doc>
@@ -224,21 +208,14 @@ export default function Tenants({ slot }) {
             name="tenants"
             row={t}
             onDone={saved}
-            after={
-              <div className="danger-zone">
-                <h3>Danger zone</h3>
-                <p>Moved out? Use Move out on their sheet to keep their history. Deleting removes it for good.</p>
-                <button type="button" className="btn danger" onClick={() => setConfirming(true)}>Delete tenant</button>
-              </div>
-            }
           />
         </Doc>
       )}
       {confirming && (
         <Confirm
-          title={`Delete ${t.name}?`}
-          body={`Their ${plural(details.payments.length, 'payment record')} go too, and this can't be undone. If they just moved out, use Move out instead to keep their history.`}
-          confirmLabel={`Delete ${t.name}`}
+          title={`${t.name} moved out?`}
+          body={`They're removed from ${details.property}, along with their ${plural(details.payments.length, 'payment record')}. This can't be undone.`}
+          confirmLabel="Move out"
           cancelLabel="Keep tenant"
           busy={deleting}
           onConfirm={remove}

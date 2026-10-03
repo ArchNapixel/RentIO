@@ -2,7 +2,7 @@
 // Dates are ISO strings (YYYY-MM-DD). Rent is monthly: a tenant owes every month from their move-in month.
 
 // "Today" and "this month" are Philippine time wherever the server runs (a UTC host would flip the month at 8 am). Set TZ to override.
-process.env.TZ ??= 'Asia/Manila';
+if (globalThis.process?.env) process.env.TZ ??= 'Asia/Manila';
 
 export const PROPERTY_TYPES = ['Boarding house', 'Dormitory', 'Apartment', 'Condominium', 'House'];
 export const SHARED_TYPES = ['Boarding house', 'Dormitory']; // rented per person, have a capacity
@@ -98,13 +98,13 @@ export function dashboard(db, on = today()) {
 // Nena's speech bubble when Gemini isn't available: the most urgent thing first.
 export function quickHint(d, on = today()) {
   const month = MONTH_NAMES[Number(on.slice(5, 7)) - 1];
-  if (d.properties === 0) return "Hi! I'm Nena, your RentIO assistant. Add your first property, or tap here to ask me anything.";
+  if (d.properties === 0) return "Hi! I'm Nena, your RentIO assistant. Tap my button to add your first property.";
   if (d.tenants === 0) return 'No tenants yet. Tap my button to add your first tenant.';
   const late = d.overdueTenants.length;
-  if (late) return `Heads up: ${late} tenant${late > 1 ? 's have' : ' has'} overdue rent (${peso(d.overdue)}). Tap to ask me who.`;
+  if (late) return `Heads up: ${late} tenant${late > 1 ? 's have' : ' has'} overdue rent (${peso(d.overdue)}).`;
   const unpaid = d.dueTenants - d.paidThisMonth;
   if (unpaid) return `${unpaid} tenant${unpaid > 1 ? "s haven't" : " hasn't"} paid for ${month} yet.`;
-  return `Everyone has paid for ${month}. Ask me anything.`;
+  return `Everyone has paid for ${month}.`;
 }
 
 // Daily email to the owner: only overdue rent, so a quiet day sends nothing.

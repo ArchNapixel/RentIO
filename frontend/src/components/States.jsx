@@ -1,4 +1,4 @@
-// Loading, error, empty and offline states.
+// Loading, error and empty states.
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { I, Icon } from './Icons.jsx';
@@ -21,9 +21,9 @@ export function Loading({ rows = 3 }) {
 export function LoadError({ what, onRetry }) {
   return (
     <div className="card state">
-      <span className="icon"><Icon d={I.server} /></span>
+      <span className="icon"><Icon d={I.alert} /></span>
       <h2>We couldn't load {what}</h2>
-      <p>RentIO's server isn't answering right now. It's on our side, and your records are safe.</p>
+      <p>Something went wrong reading this phone's storage. Your records are still saved.</p>
       <div className="row-actions">
         <button className="btn primary sm" onClick={onRetry}>Try again</button>
         <a className="link" href="#dashboard">Go to Home</a>
@@ -40,26 +40,6 @@ export function Empty({ icon = I.building, title, children, action }) {
       {children && <p>{children}</p>}
       {action}
     </div>
-  );
-}
-
-export function useOnline() {
-  const [online, setOnline] = useState(navigator.onLine);
-  useEffect(() => {
-    const on = () => setOnline(true), off = () => setOnline(false);
-    addEventListener('online', on);
-    addEventListener('offline', off);
-    return () => { removeEventListener('online', on); removeEventListener('offline', off); };
-  }, []);
-  return online;
-}
-
-export function OfflineBanner() {
-  return (
-    <p className="box due offline" role="status">
-      <Icon d={I.wifiOff} />
-      <span><strong>You're offline.</strong> What's on screen may be out of date, and changes won't save until you're back online.</span>
-    </p>
   );
 }
 

@@ -1,8 +1,7 @@
-// Account sheet: who you're signed in as, settings (theme, notifications, export), log out, and delete the account (app stores require the option).
+// Settings sheet: theme, notifications, export, and erase everything stored on this phone.
 import { useEffect, useState } from 'react';
 import { api, download } from '../api.js';
 import { askNotifyPermission, notifyPermission } from '../notify.js';
-import { supabase } from '../supabase.js';
 import Doc, { Confirm } from './Doc.jsx';
 import { I, Icon } from './Icons.jsx';
 import ThemeToggle from './ThemeToggle.jsx';
@@ -22,7 +21,7 @@ function Notifications() {
   );
 }
 
-export default function Account({ email, onClose }) {
+export default function Account({ onClose }) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -30,7 +29,8 @@ export default function Account({ email, onClose }) {
     setBusy(true);
     try {
       await api('/account', { method: 'DELETE' });
-      await supabase.auth.signOut(); // the app returns to the login screen
+      location.hash = ''; // back to a fresh, empty app
+      location.reload();
     } catch (err) {
       setConfirming(false);
       setBusy(false);
@@ -42,26 +42,24 @@ export default function Account({ email, onClose }) {
     <>
       <Doc title="Account" onClose={onClose}>
         <div className="form">
-          {email && <p className="muted small">Signed in as {email}</p>}
           <ThemeToggle labelled />
           <Notifications />
-          <button className="btn block" onClick={() => download('/export/tenants', 'tenants.csv').catch((err) => toast({ text: err.message, error: true }))}>
+          <button className="btn block" onClick={() => download('tenants', 'tenants.csv').catch((err) => toast({ text: err.message, error: true }))}>
             <Icon d={I.download} />Export tenants (CSV)
           </button>
-          <button className="btn block" onClick={() => supabase.auth.signOut()}>Log out</button>
           <div className="danger-zone">
-            <h3>Delete account</h3>
-            <p>Removes your properties, tenants and payment history for good. This can't be undone.</p>
-            <button type="button" className="btn danger" onClick={() => setConfirming(true)}>Delete my account</button>
+            <h3>Erase all data</h3>
+            <p>Removes your properties, tenants and payment history from this phone for good. This can't be undone.</p>
+            <button type="button" className="btn danger" onClick={() => setConfirming(true)}>Erase all data</button>
           </div>
         </div>
       </Doc>
       {confirming && (
         <Confirm
-          title="Delete your account?"
-          body="Everything in it goes: every property, tenant and payment record. This can't be undone."
-          confirmLabel="Delete my account"
-          cancelLabel="Keep my account"
+          title="Erase all data?"
+          body="Every property, tenant and payment record on this phone goes. This can't be undone."
+          confirmLabel="Erase all data"
+          cancelLabel="Keep my data"
           busy={busy}
           onConfirm={remove}
           onCancel={() => setConfirming(false)}
